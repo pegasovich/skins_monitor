@@ -12,7 +12,7 @@ class StickerInfo(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
-    slot: int = Field(..., ge=0, le=4)
+    slot: int = Field(..., ge=0)
     name: str
     wear: Decimal | None = Field(default=None, ge=Decimal("0.0"), le=Decimal("1.0"))
 

@@ -43,7 +43,13 @@ class SteamMarketAdapter(BaseProvider):
         super().__init__(provider_id=provider_id)
         self.api_key = api_key
         headers = {
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/131.0.0.0 Safari/537.36"
+            ),
             "Accept-Language": "en-US,en;q=0.9",
+            "Referer": "https://steamcommunity.com/market/",
         }
         self.http_client = ResilientHttpClient(
             base_url=self.BASE_URL,
@@ -53,6 +59,7 @@ class SteamMarketAdapter(BaseProvider):
         )
         self._price_cache: dict[str, tuple[PricePoint, float]] = {}
         self.cache_ttl: float = 300.0  # 5 minutes cache TTL
+        self._cooldown_until: float = 0.0
 
     @staticmethod
     def _parse_currency_string(price_str: str | None) -> Decimal | None:
@@ -143,6 +150,11 @@ class SteamMarketAdapter(BaseProvider):
             return None
 
         now = time.time()
+        if now < self._cooldown_until:
+            if market_hash_name in self._price_cache:
+                return self._price_cache[market_hash_name][0]
+            return None
+
         if market_hash_name in self._price_cache:
             cached_pt, ts = self._price_cache[market_hash_name]
             if now - ts < self.cache_ttl:
@@ -164,6 +176,7 @@ class SteamMarketAdapter(BaseProvider):
                     self._price_cache[market_hash_name] = (point, now)
                 return point
         except Exception as e:
+            self._cooldown_until = time.time() + 60.0  # Back off Steam for 60s
             logger.debug("steam.item_fetch_failed", item=market_hash_name, error=str(e))
             if market_hash_name in self._price_cache:
                 return self._price_cache[market_hash_name][0]
