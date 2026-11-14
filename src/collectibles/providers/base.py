@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 import structlog
 from pydantic import ValidationError
 
+from collectibles.core.circuit_breaker import CircuitBreaker, CircuitState
 from collectibles.core.models import PricePoint
 
 logger = structlog.get_logger(__name__)
@@ -18,11 +19,22 @@ class ProviderQuarantinedError(Exception):
 class BaseProvider(abc.ABC):
     """Abstract base class for all collectible market data providers."""
 
-    def __init__(self, provider_id: str, max_consecutive_validation_errors: int = 5) -> None:
+    def __init__(
+        self,
+        provider_id: str,
+        max_consecutive_validation_errors: int = 5,
+        circuit_breaker: CircuitBreaker | None = None,
+    ) -> None:
         self.provider_id = provider_id
         self.max_consecutive_validation_errors = max_consecutive_validation_errors
+        self.circuit_breaker = circuit_breaker or CircuitBreaker(name=provider_id)
         self._consecutive_errors: int = 0
         self._quarantined_until: datetime | None = None
+
+    @property
+    def is_available(self) -> bool:
+        """Check whether provider is neither quarantined nor tripped by circuit breaker."""
+        return not self.is_quarantined and self.circuit_breaker.state != CircuitState.OPEN
 
     @property
     def is_quarantined(self) -> bool:
@@ -91,5 +103,5 @@ class ProviderRegistry:
         return self._providers.get(provider_id)
 
     def list_active(self) -> list[BaseProvider]:
-        """Return all non-quarantined providers."""
-        return [p for p in self._providers.values() if not p.is_quarantined]
+        """Return all available providers (not quarantined and circuit breaker closed/half-open)."""
+        return [p for p in self._providers.values() if p.is_available]
