@@ -1,5 +1,6 @@
 """Production live adapter for Skinport API with ETag support."""
 
+import base64
 import json
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -56,6 +57,11 @@ class SkinportLiveAdapter(BaseProvider):
         headers = {
             "Accept-Encoding": "br, gzip",
         }
+        if self.client_id and self.client_secret:
+            credentials = f"{self.client_id}:{self.client_secret}"
+            b64_auth = base64.b64encode(credentials.encode("ascii")).decode("ascii")
+            headers["Authorization"] = f"Basic {b64_auth}"
+
         self.http_client = ResilientHttpClient(
             base_url=self.BASE_URL,
             headers=headers,
@@ -193,11 +199,12 @@ class SkinportLiveAdapter(BaseProvider):
 
                 self._cached_items = results
                 # Save to disk cache for offline/rate-limit recovery
-                try:
-                    with open(self.cache_file, "w", encoding="utf-8") as f:
-                        json.dump(selected_pool, f)
-                except Exception:
-                    pass
+                if selected_pool:
+                    try:
+                        with open(self.cache_file, "w", encoding="utf-8") as f:
+                            json.dump(selected_pool, f)
+                    except Exception:
+                        pass
 
                 logger.info(
                     "skinport.fetch_success",

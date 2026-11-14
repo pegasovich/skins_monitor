@@ -56,9 +56,18 @@ class CollectiblesMonitorOrchestrator:
         csfloat_key = (
             settings.csfloat_api_key.get_secret_value() if settings.csfloat_api_key else None
         )
+        skinport_secret = (
+            settings.skinport_client_secret.get_secret_value()
+            if settings.skinport_client_secret
+            else None
+        )
         self.registry.register(CSFloatLiveAdapter(api_key=csfloat_key, provider_id="csfloat"))
         self.registry.register(
-            SkinportLiveAdapter(client_id=settings.skinport_client_id, provider_id="skinport")
+            SkinportLiveAdapter(
+                client_id=settings.skinport_client_id,
+                client_secret=skinport_secret,
+                provider_id="skinport",
+            )
         )
         self.registry.register(SteamMarketAdapter(provider_id="steam"))
 
