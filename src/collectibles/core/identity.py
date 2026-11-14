@@ -33,23 +33,36 @@ class CS2ItemIdentity(BaseModel):
 
     def get_wear_bucket(self) -> str:
         """Classify item into wear bucket and precision tiers."""
-        if self.float_value is None:
-            return "unknown_wear"
+        if self.float_value is not None:
+            fv = self.float_value
+            if fv < Decimal("0.01"):
+                return "fn_triple_zero"
+            if fv < Decimal("0.07"):
+                return "factory_new"
+            if fv < Decimal("0.15"):
+                return "minimal_wear"
+            if fv < Decimal("0.38"):
+                return "field_tested"
+            if fv < Decimal("0.45"):
+                return "well_worn"
+            if fv >= Decimal("0.95"):
+                return "bs_high_float"
+            return "battle_scarred"
 
-        fv = self.float_value
-        if fv < Decimal("0.01"):
-            return "fn_triple_zero"
-        if fv < Decimal("0.07"):
+        # Infer bucket from standardized market_hash_name
+        name = self.market_hash_name
+        if "(Factory New)" in name:
             return "factory_new"
-        if fv < Decimal("0.15"):
+        if "(Minimal Wear)" in name:
             return "minimal_wear"
-        if fv < Decimal("0.38"):
+        if "(Field-Tested)" in name:
             return "field_tested"
-        if fv < Decimal("0.45"):
+        if "(Well-Worn)" in name:
             return "well_worn"
-        if fv >= Decimal("0.95"):
-            return "bs_high_float"
-        return "battle_scarred"
+        if "(Battle-Scarred)" in name:
+            return "battle_scarred"
+
+        return "unknown_wear"
 
     def is_commodity_grade(self) -> bool:
         """Check if item can be treated as a fungible commodity without collectors premium."""
@@ -70,14 +83,29 @@ class CS2ItemIdentity(BaseModel):
         """Compute deterministic SHA256 identity hash for cross-source reconciliation.
 
         Args:
-            strict_mode: If True, incorporates exact paint_seed and float.
-                         If False, matches by market_hash_name, stattrak, souvenir,
-                         and wear bucket (for commodity pricing).
+            strict_mode: If True, incorporates exact paint_seed, exact float, and stickers.
+                         If False, matches commodities by market_hash_name and phase.
         """
         sorted_stickers = sorted(
             [{"slot": s.slot, "name": s.name} for s in self.stickers],
             key=lambda x: int(str(x["slot"])),
         )
+
+        if not strict_mode:
+            # Commodity mode: match by name + type + stickers + wear bucket (inferred from name).
+            # wear_bucket uses get_wear_bucket() which falls back to name-parsing when
+            # float_value is None — this is the key to cross-source matching between
+            # CSFloat (has float) and Skinport (catalog-level, no float).
+            payload = {
+                "market_hash_name": self.market_hash_name.strip(),
+                "is_stattrak": self.is_stattrak,
+                "is_souvenir": self.is_souvenir,
+                "phase": self.phase.lower().strip() if self.phase else None,
+                "stickers": sorted_stickers,
+                "wear_bucket": self.get_wear_bucket(),
+            }
+            serialized = json.dumps(payload, sort_keys=True)
+            return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
 
         payload = {
             "market_hash_name": self.market_hash_name.strip(),
@@ -85,14 +113,10 @@ class CS2ItemIdentity(BaseModel):
             "is_souvenir": self.is_souvenir,
             "phase": self.phase.lower().strip() if self.phase else None,
             "stickers": sorted_stickers,
+            "paint_index": self.paint_index,
+            "paint_seed": self.paint_seed,
+            "float_value": str(self.float_value) if self.float_value is not None else None,
+            "wear_bucket": self.get_wear_bucket(),
         }
-
-        if strict_mode:
-            payload["paint_index"] = self.paint_index
-            payload["paint_seed"] = self.paint_seed
-            payload["float_value"] = str(self.float_value) if self.float_value is not None else None
-        else:
-            payload["wear_bucket"] = self.get_wear_bucket()
-
         serialized = json.dumps(payload, sort_keys=True)
         return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
