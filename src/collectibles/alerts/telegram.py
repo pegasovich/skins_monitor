@@ -1,6 +1,7 @@
 """Production Telegram Bot alert dispatcher with inline buttons and markdown formatting."""
 
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 import structlog
@@ -29,7 +30,7 @@ class TelegramAlertChannel(AlertChannel):
 
     def _build_marketplace_url(self, platform_id: str, market_hash_name: str) -> str:
         """Construct direct search/listing URL for platform."""
-        safe_name = httpx.URL(market_hash_name).path
+        safe_name = quote(market_hash_name)
         if platform_id.lower() == "csfloat":
             return f"https://csfloat.com/search?market_hash_name={safe_name}"
         if platform_id.lower() == "skinport":

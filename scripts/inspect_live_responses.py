@@ -40,6 +40,21 @@ async def inspect() -> None:
         except Exception as e:
             print(f"Skinport Error: {e}")
 
+        print("\n--- Inspecting Steam Market ---")
+        try:
+            resp_steam = await client.get(
+                "https://steamcommunity.com/market/priceoverview/",
+                params={
+                    "appid": 730,
+                    "currency": 1,
+                    "market_hash_name": "AK-47 | Redline (Field-Tested)",
+                },
+            )
+            print(f"Steam Status Code: {resp_steam.status_code}")
+            print(f"Steam Response: {resp_steam.json()}")
+        except Exception as e:
+            print(f"Steam Error: {e}")
+
 
 if __name__ == "__main__":
     asyncio.run(inspect())
