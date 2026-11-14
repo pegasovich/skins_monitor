@@ -60,6 +60,7 @@ class SteamMarketAdapter(BaseProvider):
         self._price_cache: dict[str, tuple[PricePoint, float]] = {}
         self.cache_ttl: float = 300.0  # 5 minutes cache TTL
         self._cooldown_until: float = 0.0
+        self.circuit_breaker.recovery_timeout_seconds = 180.0
 
     @staticmethod
     def _parse_currency_string(price_str: str | None) -> Decimal | None:
@@ -176,8 +177,13 @@ class SteamMarketAdapter(BaseProvider):
                     self._price_cache[market_hash_name] = (point, now)
                 return point
         except Exception as e:
-            self._cooldown_until = time.time() + 60.0  # Back off Steam for 60s
-            logger.debug("steam.item_fetch_failed", item=market_hash_name, error=str(e))
+            self._cooldown_until = time.time() + 180.0  # 3 minutes polite cooldown
+            logger.info(
+                "steam.cooldown_activated",
+                cooldown_seconds=180,
+                item=market_hash_name,
+                error=str(e)[:60],
+            )
             if market_hash_name in self._price_cache:
                 return self._price_cache[market_hash_name][0]
             return None
@@ -188,6 +194,13 @@ class SteamMarketAdapter(BaseProvider):
         self, limit: int = 50, target_items: list[str] | None = None
     ) -> list[PricePoint]:
         """Fetch prices for target skins or fallback to benchmark liquidity items."""
+        now = time.time()
+        if now < self._cooldown_until:
+            return [
+                self._price_cache[name][0]
+                for name in (target_items or [])[:limit]
+                if name in self._price_cache
+            ]
         BENCHMARK_SKINS = [
             "AK-47 | Redline (Field-Tested)",
             "AWP | Asiimov (Field-Tested)",

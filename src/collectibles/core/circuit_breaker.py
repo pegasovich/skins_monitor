@@ -97,7 +97,7 @@ class CircuitBreaker:
                 ):
                     self._state = CircuitState.OPEN
                     self._tripped_at = now
-                    logger.critical(
+                    logger.info(
                         "circuit_breaker.tripped_open",
                         breaker=self.name,
                         recovery_timeout_seconds=self.recovery_timeout_seconds,

@@ -127,7 +127,7 @@ class ResilientHttpClient:
                 # 2. Check for HTTP 429 Rate Limited
                 if response.status_code == 429:
                     retry_after = self._parse_retry_after(response) or 5.0
-                    logger.warning(
+                    logger.info(
                         "http_client.rate_limited_429",
                         endpoint=endpoint,
                         retry_after_seconds=retry_after,
