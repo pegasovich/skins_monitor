@@ -47,18 +47,29 @@ class TelegramAlertChannel(AlertChannel):
         self.dry_run = dry_run
         self.timeout = timeout_seconds
 
-    def _build_marketplace_url(self, platform_id: str, market_hash_name: str) -> str:
-        """Construct direct listing/search URL for platform."""
+    def _build_marketplace_url(
+        self, platform_id: str, market_hash_name: str, external_id: str | None = None
+    ) -> str:
+        """Construct direct listing/search URL for platform.
+
+        When external_id is available and the platform supports direct listing URLs,
+        returns a deep-link to the specific listing instead of a search page.
+        """
         safe_name = quote(market_hash_name)
         if platform_id.lower() == "csfloat":
-            # Use market_hash_name only — no extra params that trigger broken redirects
+            # Direct listing URL when we have a real CSFloat listing ID
+            if (
+                external_id
+                and not external_id.startswith("skinport_")
+                and not external_id.startswith("steam_")
+            ):
+                return f"https://csfloat.com/item/{external_id}"
             return f"https://csfloat.com/search?market_hash_name={safe_name}&type=buy_now"
         if platform_id.lower() == "skinport":
             # Skinport item page: /item/csgo/<slug>
             slug = _slugify(market_hash_name)
             return f"https://skinport.com/item/csgo/{slug}"
         if platform_id.lower() == "steam":
-            # Steam Community Market listing page
             return f"https://steamcommunity.com/market/listings/730/{safe_name}"
         return f"https://google.com/search?q=CS2+{safe_name}"
 
@@ -92,11 +103,15 @@ class TelegramAlertChannel(AlertChannel):
     def _build_inline_keyboard(self, signal: AnomalySignal) -> dict[str, Any]:
         """Create action buttons linking directly to markets.
 
-        Row 1: primary buy / sell buttons.
+        Row 1: primary buy / sell buttons (direct listing when ID available).
         Row 2: Steam Market fallback (always works as a price reference).
         """
-        buy_url = self._build_marketplace_url(signal.source_buy, signal.market_hash_name)
-        sell_url = self._build_marketplace_url(signal.source_sell, signal.market_hash_name)
+        buy_url = self._build_marketplace_url(
+            signal.source_buy, signal.market_hash_name, signal.buy_external_id
+        )
+        sell_url = self._build_marketplace_url(
+            signal.source_sell, signal.market_hash_name, signal.sell_external_id
+        )
         steam_url = self._build_marketplace_url("steam", signal.market_hash_name)
 
         rows: list[list[dict[str, str]]] = [

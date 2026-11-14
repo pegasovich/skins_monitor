@@ -112,8 +112,14 @@ class AnomalySignal(BaseModel):
 
     source_buy: str
     buy_price_net: Decimal
+    buy_external_id: str | None = Field(
+        default=None, description="Platform listing ID for buy side"
+    )
     source_sell: str
     sell_price_net: Decimal
+    sell_external_id: str | None = Field(
+        default=None, description="Platform listing ID for sell side"
+    )
 
     gross_spread_percent: Decimal
     net_spread_percent: Decimal

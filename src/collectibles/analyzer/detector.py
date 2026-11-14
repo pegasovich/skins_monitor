@@ -149,10 +149,12 @@ class OpportunityDetector:
             buy_price_net=self.fee_calculator.calculate_buyer_cost(
                 buy_point.source_id, buy_point.normalized_price
             ),
+            buy_external_id=buy_point.external_item_id,
             source_sell=sell_point.source_id,
             sell_price_net=self.fee_calculator.calculate_seller_proceeds(
                 sell_point.source_id, sell_point.normalized_price
             ),
+            sell_external_id=sell_point.external_item_id,
             gross_spread_percent=gross_spread,
             net_spread_percent=net_spread,
             net_profit_nominal=net_profit,
