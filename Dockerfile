@@ -1,5 +1,5 @@
 # Multi-stage secure build for Collectibles Monitoring System
-FROM python:3.11-slim AS builder
+FROM python:3.12-slim AS builder
 
 WORKDIR /build
 
@@ -12,7 +12,7 @@ RUN pip install --no-cache-dir --upgrade pip && \
     pip wheel --no-cache-dir --no-deps --wheel-dir /build/wheels -e .
 
 # Final lean runtime image
-FROM python:3.11-slim AS runner
+FROM python:3.12-slim AS runner
 
 WORKDIR /app
 
