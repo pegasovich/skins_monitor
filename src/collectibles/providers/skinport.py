@@ -203,14 +203,14 @@ class SkinportLiveAdapter(BaseProvider):
                 if not isinstance(raw_items, list):
                     return self._cached_items[:limit]
 
-                # Prioritize liquid items with significant discounts (min_price >= $2.00)
+                # Prioritize liquid items within target price band ($5.00 - $50.00)
                 valid_items = [
                     x
                     for x in raw_items
                     if isinstance(x, dict)
                     and x.get("min_price") is not None
                     and x.get("suggested_price") is not None
-                    and float(x["min_price"]) >= 2.0
+                    and 5.0 <= float(x["min_price"]) <= 50.0
                     and int(x.get("quantity", 0)) >= 1
                 ]
 

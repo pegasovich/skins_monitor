@@ -74,6 +74,7 @@ class CSFloatLiveAdapter(BaseProvider):
             rate_limiter=InMemoryTokenBucket(rate_per_second=rate_per_sec, capacity=3.0),
             rate_limit_key="csfloat_api",
         )
+        self._toggle_sort: bool = False
 
     async def health_check(self) -> bool:
         """Verify liveness of CSFloat endpoint."""
@@ -155,11 +156,21 @@ class CSFloatLiveAdapter(BaseProvider):
             )
             return []
 
+        sort_mode = "highest_discount" if self._toggle_sort else "most_recent"
+        self._toggle_sort = not self._toggle_sort
+
         results: list[PricePoint] = []
         async with self.circuit_breaker:
+            params = {
+                "limit": min(limit, 50),
+                "min_price": 500,  # $5.00
+                "max_price": 5000,  # $50.00
+                "sort_by": sort_mode,
+                "type": "buy_now",
+            }
             resp = await self.http_client.get(
                 "/api/v1/listings",
-                params={"limit": min(limit, 50), "sort_by": "most_recent"},
+                params=params,
             )
             raw_data = resp.json()
 
@@ -179,5 +190,10 @@ class CSFloatLiveAdapter(BaseProvider):
                         self.record_validation_error(e)
                     logger.debug("csfloat.parse_item_failed", error=str(e))
 
-            logger.info("csfloat.fetch_success", count=len(results))
+            logger.info(
+                "csfloat.fetch_success",
+                count=len(results),
+                sort_by=sort_mode,
+                price_range="$5-$50",
+            )
         return results
