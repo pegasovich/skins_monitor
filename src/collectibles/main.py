@@ -3,6 +3,7 @@
 import asyncio
 import signal
 import sys
+from decimal import Decimal
 
 import structlog
 
@@ -27,7 +28,9 @@ class CollectiblesMonitorOrchestrator:
         self.running = False
         self._cycle_number: int = 0
         self.storage = SQLiteStorageRepository()
-        self.detector = OpportunityDetector()
+        self.detector = OpportunityDetector(
+            min_net_spread_percent=Decimal(str(settings.min_net_spread_pct))
+        )
         self.registry = ProviderRegistry()
 
         # Alert channels setup

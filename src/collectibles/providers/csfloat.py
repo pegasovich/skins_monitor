@@ -7,6 +7,7 @@ from typing import Any
 import structlog
 from pydantic import BaseModel, ConfigDict, Field
 
+from collectibles.core.config import settings
 from collectibles.core.http_client import ResilientHttpClient
 from collectibles.core.identity import CS2ItemIdentity, StickerInfo
 from collectibles.core.models import DataStatus, PricePoint
@@ -163,8 +164,8 @@ class CSFloatLiveAdapter(BaseProvider):
         async with self.circuit_breaker:
             params = {
                 "limit": min(limit, 50),
-                "min_price": 500,  # $5.00
-                "max_price": 5000,  # $50.00
+                "min_price": int(settings.min_price_usd * 100),
+                "max_price": int(settings.max_price_usd * 100),
                 "sort_by": sort_mode,
                 "type": "buy_now",
             }
@@ -194,6 +195,6 @@ class CSFloatLiveAdapter(BaseProvider):
                 "csfloat.fetch_success",
                 count=len(results),
                 sort_by=sort_mode,
-                price_range="$5-$50",
+                price_range=f"${settings.min_price_usd:.0f}-${settings.max_price_usd:.0f}",
             )
         return results

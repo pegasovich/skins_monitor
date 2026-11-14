@@ -11,6 +11,7 @@ from typing import Any
 import structlog
 from pydantic import BaseModel, ConfigDict, Field
 
+from collectibles.core.config import settings
 from collectibles.core.http_client import ResilientHttpClient
 from collectibles.core.identity import CS2ItemIdentity
 from collectibles.core.models import DataStatus, PricePoint
@@ -201,14 +202,14 @@ class SkinportLiveAdapter(BaseProvider):
                 if not isinstance(raw_items, list):
                     return self._cached_items[:limit]
 
-                # Prioritize liquid items within target price band ($5.00 - $50.00)
+                # Prioritize liquid items within target price band
                 valid_items = [
                     x
                     for x in raw_items
                     if isinstance(x, dict)
                     and x.get("min_price") is not None
                     and x.get("suggested_price") is not None
-                    and 5.0 <= float(x["min_price"]) <= 50.0
+                    and settings.min_price_usd <= float(x["min_price"]) <= settings.max_price_usd
                     and int(x.get("quantity", 0)) >= 1
                 ]
 
