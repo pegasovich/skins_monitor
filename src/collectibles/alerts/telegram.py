@@ -1,5 +1,6 @@
 """Production Telegram Bot alert dispatcher with inline buttons and markdown formatting."""
 
+import re
 from typing import Any
 from urllib.parse import quote
 
@@ -11,6 +12,24 @@ from collectibles.alerts.engine import AlertChannel
 from collectibles.core.models import AnomalySignal
 
 logger = structlog.get_logger(__name__)
+
+
+def _slugify(name: str) -> str:
+    """Convert Steam market hash name to Skinport URL slug.
+
+    E.g. 'AK-47 | Redline (Field-Tested)' → 'ak-47-redline-field-tested'
+    """
+    # Lowercase
+    slug = name.lower()
+    # Remove special chars except hyphens, letters, digits, spaces
+    slug = re.sub(r"[|()★™]", " ", slug)
+    # Collapse whitespace → hyphens
+    slug = re.sub(r"[\s]+", "-", slug.strip())
+    # Remove any chars that aren't alphanumeric or hyphen
+    slug = re.sub(r"[^a-z0-9\-]", "", slug)
+    # Collapse multiple hyphens
+    slug = re.sub(r"-{2,}", "-", slug).strip("-")
+    return slug
 
 
 class TelegramAlertChannel(AlertChannel):
@@ -29,15 +48,19 @@ class TelegramAlertChannel(AlertChannel):
         self.timeout = timeout_seconds
 
     def _build_marketplace_url(self, platform_id: str, market_hash_name: str) -> str:
-        """Construct direct search/listing URL for platform."""
+        """Construct direct listing/search URL for platform."""
         safe_name = quote(market_hash_name)
         if platform_id.lower() == "csfloat":
-            return f"https://csfloat.com/search?market_hash_name={safe_name}"
+            # CSFloat search by name — shows all buy-now listings sorted by price
+            return f"https://csfloat.com/search?market_hash_name={safe_name}&sort_by=price&type=buy_now"
         if platform_id.lower() == "skinport":
-            return f"https://skinport.com/market?item={safe_name}"
+            # Skinport item page: /item/csgo/<slug>
+            slug = _slugify(market_hash_name)
+            return f"https://skinport.com/item/csgo/{slug}"
         if platform_id.lower() == "steam":
+            # Steam Community Market listing page
             return f"https://steamcommunity.com/market/listings/730/{safe_name}"
-        return f"https://google.com/search?q={safe_name}"
+        return f"https://google.com/search?q=CS2+{safe_name}"
 
     def format_signal_html(self, signal: AnomalySignal) -> str:
         """Render readable HTML message for Telegram."""
