@@ -27,6 +27,10 @@ class Settings(BaseSettings):
 
     # Financial & Currency
     base_currency: str = Field(default="USD", description="Canonical base currency for comparisons")
+    eur_usd_rate: float = Field(
+        default=1.08,
+        description="EUR to USD exchange rate for dual display (€ / $) in alerts",
+    )
     min_net_spread_pct: float = Field(default=3.0, description="Minimum net profit spread percent")
     min_price_usd: float = Field(default=5.0, description="Minimum item price in USD")
     max_price_usd: float = Field(default=500.0, description="Maximum item price in USD")

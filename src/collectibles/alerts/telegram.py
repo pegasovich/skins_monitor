@@ -1,6 +1,7 @@
 """Production Telegram Bot alert dispatcher with inline buttons and markdown formatting."""
 
 import re
+from decimal import Decimal
 from typing import Any
 from urllib.parse import quote
 
@@ -41,11 +42,23 @@ class TelegramAlertChannel(AlertChannel):
         chat_id: str | None,
         dry_run: bool = True,
         timeout_seconds: float = 8.0,
+        eur_usd_rate: Decimal = Decimal("1.08"),
     ) -> None:
         self.bot_token = bot_token
         self.chat_id = chat_id
         self.dry_run = dry_run
         self.timeout = timeout_seconds
+        self.eur_usd_rate = eur_usd_rate
+
+    def _format_dual_price(self, amount_usd: Decimal, prefix: str = "") -> str:
+        """Format price in dual currency: €EUR ($USD).
+
+        Example: Decimal('8.92') -> '€8.26 ($8.92)'
+        """
+        if self.eur_usd_rate > Decimal("0.0"):
+            amount_eur = (amount_usd / self.eur_usd_rate).quantize(Decimal("0.01"))
+            return f"{prefix}€{amount_eur} ({prefix}${amount_usd})"
+        return f"{prefix}${amount_usd}"
 
     def _build_marketplace_url(
         self, platform_id: str, market_hash_name: str, external_id: str | None = None
@@ -86,14 +99,17 @@ class TelegramAlertChannel(AlertChannel):
             else "⚡ <i>Instant Delivery</i>"
         )
 
-        sell_str = f"{signal.source_sell.upper()} (Net: ${signal.sell_price_net})"
+        buy_price_fmt = self._format_dual_price(signal.buy_price_net)
+        sell_price_fmt = self._format_dual_price(signal.sell_price_net)
+        profit_fmt = self._format_dual_price(signal.net_profit_nominal, prefix="+")
+        sell_str = f"{signal.source_sell.upper()} (Net: {sell_price_fmt})"
         return (
             f"{mode_tag}"
             f"<b>Item:</b> <code>{signal.market_hash_name}</code>\n\n"
-            f"🟢 <b>Buy:</b> {signal.source_buy.upper()} @ <b>${signal.buy_price_net}</b>\n"
+            f"🟢 <b>Buy:</b> {signal.source_buy.upper()} @ <b>{buy_price_fmt}</b>\n"
             f"🔴 <b>Sell:</b> <b>{sell_str}</b>\n\n"
             f"📈 <b>Net Spread:</b> <code>+{signal.net_spread_percent}%</code>\n"
-            f"💰 <b>Estimated Net Profit:</b> <b>+${signal.net_profit_nominal}</b>\n"
+            f"💰 <b>Estimated Net Profit:</b> <b>{profit_fmt}</b>\n"
             f"📊 <b>Liquidity:</b> {signal.liquidity_tier.value.upper()}\n"
             f"🛡 <b>Confidence:</b> {int(signal.confidence_score * 100)}%\n"
             f"📦 <b>Status:</b> {trade_lock}\n"

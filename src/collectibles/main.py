@@ -41,6 +41,7 @@ class CollectiblesMonitorOrchestrator:
                     bot_token=settings.telegram_bot_token,
                     chat_id=settings.telegram_chat_id,
                     dry_run=settings.dry_run,
+                    eur_usd_rate=Decimal(str(settings.eur_usd_rate)),
                 )
             )
         self.alert_engine = AlertEngine(settings=settings, channels=channels)
