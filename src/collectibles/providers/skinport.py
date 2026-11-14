@@ -163,6 +163,14 @@ class SkinportLiveAdapter(BaseProvider):
             else datetime.now(UTC)
         )
 
+        # Normalize price to USD base currency using configured EUR/USD rate
+        if model.currency.upper() == "EUR":
+            fx = Decimal(str(settings.eur_usd_rate))
+            norm_price = (decimal_price * fx).quantize(Decimal("0.01"))
+        else:
+            fx = Decimal("1.0")
+            norm_price = decimal_price
+
         return PricePoint(
             source_id=self.provider_id,
             external_item_id=f"skinport_{identity_hash[:16]}",
@@ -170,7 +178,8 @@ class SkinportLiveAdapter(BaseProvider):
             market_hash_name=model.market_hash_name,
             raw_price=decimal_price,
             raw_currency=model.currency,
-            normalized_price=decimal_price,
+            normalized_price=norm_price,
+            fx_rate=fx,
             base_currency="USD",
             event_time=event_time,
             status=DataStatus.FRESH,
@@ -193,7 +202,7 @@ class SkinportLiveAdapter(BaseProvider):
         results: list[PricePoint] = []
         try:
             async with self.circuit_breaker:
-                params = {"app_id": 730, "currency": "USD"}
+                params = {"app_id": 730, "currency": "EUR"}
                 resp = await self.http_client.get("/v1/items", params=params, max_attempts=1)
 
                 if resp.status_code == 304 and self._cached_items:
@@ -208,14 +217,18 @@ class SkinportLiveAdapter(BaseProvider):
                 if not isinstance(raw_items, list):
                     return self._cached_items[:limit]
 
-                # Prioritize liquid items within target price band
+                # Prioritize liquid items within target price band (in USD)
                 valid_items = [
                     x
                     for x in raw_items
                     if isinstance(x, dict)
                     and x.get("min_price") is not None
                     and x.get("suggested_price") is not None
-                    and settings.min_price_usd <= float(x["min_price"]) <= settings.max_price_usd
+                    and (
+                        settings.min_price_usd
+                        <= float(x["min_price"]) * settings.eur_usd_rate
+                        <= settings.max_price_usd
+                    )
                     and int(x.get("quantity", 0)) >= 1
                 ]
 

@@ -114,11 +114,15 @@ class AnomalySignal(BaseModel):
 
     source_buy: str
     buy_price_net: Decimal
+    buy_raw_price: Decimal | None = Field(default=None, description="Original un-normalized price")
+    buy_raw_currency: str | None = Field(default=None, description="Original currency symbol")
     buy_external_id: str | None = Field(
         default=None, description="Platform listing ID for buy side"
     )
     source_sell: str
     sell_price_net: Decimal
+    sell_raw_price: Decimal | None = Field(default=None, description="Original un-normalized price")
+    sell_raw_currency: str | None = Field(default=None, description="Original currency symbol")
     sell_external_id: str | None = Field(
         default=None, description="Platform listing ID for sell side"
     )

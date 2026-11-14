@@ -41,6 +41,15 @@ class CSFloatItemPayload(BaseModel):
     stickers: list[CSFloatStickerPayload] = Field(default_factory=list)
 
 
+class CSFloatReference(BaseModel):
+    """Pricing reference metrics provided by CSFloat valuation engine."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    base_price: int | None = None
+    predicted_price: int | None = None
+
+
 class CSFloatListing(BaseModel):
     """Top-level CSFloat listing response object."""
 
@@ -48,6 +57,7 @@ class CSFloatListing(BaseModel):
 
     id: str
     price: int = Field(..., description="Price in USD cents")
+    reference: CSFloatReference | None = None
     item: CSFloatItemPayload
     created_at: str | None = None
 
@@ -89,10 +99,19 @@ class CSFloatLiveAdapter(BaseProvider):
         except Exception:
             return False
 
-    def parse_listing_to_price_point(self, raw_listing: dict[str, Any]) -> PricePoint:
-        """Validate raw json dictionary into canonical PricePoint."""
+    def parse_listing_to_price_point(self, raw_listing: dict[str, Any]) -> PricePoint | None:
+        """Validate raw json dictionary into canonical PricePoint.
+
+        Rejects overpriced listings where price > predicted_price to prevent false
+        arbitrage alerts triggered by user-inflated asks.
+        """
         model = CSFloatListing.model_validate(raw_listing)
         self.record_validation_success()
+
+        # Overprice protection: discard asks priced above CSFloat's predicted market value
+        if model.reference and model.reference.predicted_price:
+            if model.price > model.reference.predicted_price:
+                return None
 
         # Convert cents to Decimal USD
         decimal_price = (Decimal(str(model.price)) / Decimal("100")).quantize(Decimal("0.01"))
@@ -233,7 +252,8 @@ class CSFloatLiveAdapter(BaseProvider):
             for item_dict in listings_raw:
                 try:
                     price_point = self.parse_listing_to_price_point(item_dict)
-                    results.append(price_point)
+                    if price_point is not None:
+                        results.append(price_point)
                 except Exception as e:
                     from pydantic import ValidationError
 

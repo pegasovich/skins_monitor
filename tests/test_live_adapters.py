@@ -149,6 +149,38 @@ async def test_csfloat_alternating_sort_and_custom_sticker_slot() -> None:
     assert adapter._toggle_sort is False
 
 
+def test_csfloat_adapter_rejects_overpriced_listings() -> None:
+    adapter = CSFloatLiveAdapter(api_key="mock_csfloat_key")
+    overpriced_listing = {
+        "id": "csf_overpriced_1",
+        "price": 79102,  # $791.02
+        "reference": {"base_price": 64000, "predicted_price": 64000},  # market is $640.00
+        "item": {
+            "market_hash_name": "★ M9 Bayonet | Slaughter (Factory New)",
+            "float_value": 0.041,
+        },
+    }
+    point = adapter.parse_listing_to_price_point(overpriced_listing)
+    assert point is None  # Must reject overpriced ask!
+
+
+def test_skinport_adapter_parses_eur_currency() -> None:
+    adapter = SkinportLiveAdapter()
+    eur_item = {
+        "market_hash_name": "★ M9 Bayonet | Slaughter (Factory New)",
+        "currency": "EUR",
+        "suggested_price": 799.33,
+        "min_price": 635.62,
+        "quantity": 1,
+    }
+    point = adapter.parse_item_to_price_point(eur_item)
+    assert point is not None
+    assert point.raw_price == Decimal("635.62")
+    assert point.raw_currency == "EUR"
+    # Normalizes to USD using eur_usd_rate (default 1.08)
+    assert point.normalized_price == Decimal("686.47")
+
+
 @pytest.mark.asyncio
 @respx.mock
 async def test_telegram_channel_send_signal_mock() -> None:

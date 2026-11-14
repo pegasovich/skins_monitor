@@ -50,11 +50,19 @@ class TelegramAlertChannel(AlertChannel):
         self.timeout = timeout_seconds
         self.eur_usd_rate = eur_usd_rate
 
-    def _format_dual_price(self, amount_usd: Decimal, prefix: str = "") -> str:
+    def _format_dual_price(
+        self,
+        amount_usd: Decimal,
+        prefix: str = "",
+        raw_amount: Decimal | None = None,
+        raw_currency: str | None = None,
+    ) -> str:
         """Format price in dual currency: €EUR ($USD).
 
-        Example: Decimal('8.92') -> '€8.26 ($8.92)'
+        When raw_currency is EUR, uses raw_amount directly to show the exact native euro price.
         """
+        if raw_currency == "EUR" and raw_amount is not None:
+            return f"{prefix}€{raw_amount} ({prefix}${amount_usd})"
         if self.eur_usd_rate > Decimal("0.0"):
             amount_eur = (amount_usd / self.eur_usd_rate).quantize(Decimal("0.01"))
             return f"{prefix}€{amount_eur} ({prefix}${amount_usd})"
@@ -99,8 +107,16 @@ class TelegramAlertChannel(AlertChannel):
             else "⚡ <i>Instant Delivery</i>"
         )
 
-        buy_price_fmt = self._format_dual_price(signal.buy_price_net)
-        sell_price_fmt = self._format_dual_price(signal.sell_price_net)
+        buy_price_fmt = self._format_dual_price(
+            signal.buy_price_net,
+            raw_amount=signal.buy_raw_price,
+            raw_currency=signal.buy_raw_currency,
+        )
+        sell_price_fmt = self._format_dual_price(
+            signal.sell_price_net,
+            raw_amount=signal.sell_raw_price,
+            raw_currency=signal.sell_raw_currency,
+        )
         profit_fmt = self._format_dual_price(signal.net_profit_nominal, prefix="+")
         sell_str = f"{signal.source_sell.upper()} (Net: {sell_price_fmt})"
         float_line = (
