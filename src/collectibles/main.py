@@ -25,6 +25,7 @@ class CollectiblesMonitorOrchestrator:
 
     def __init__(self) -> None:
         self.running = False
+        self._cycle_number: int = 0
         self.storage = SQLiteStorageRepository()
         self.detector = OpportunityDetector()
         self.registry = ProviderRegistry()
@@ -63,8 +64,13 @@ class CollectiblesMonitorOrchestrator:
 
     async def run_cycle(self) -> None:
         """Single ingestion and analysis iteration."""
+        self._cycle_number += 1
         active_providers = self.registry.list_active()
-        logger.debug("orchestrator.cycle_start", active_providers=len(active_providers))
+        logger.info(
+            "orchestrator.cycle_start",
+            cycle=self._cycle_number,
+            active_providers=len(active_providers),
+        )
 
         collected_points: list[PricePoint] = []
         for provider in active_providers:
@@ -105,8 +111,9 @@ class CollectiblesMonitorOrchestrator:
                                 signals_found += 1
                                 await self.alert_engine.dispatch(signal)
 
-        logger.debug(
+        logger.info(
             "orchestrator.cycle_complete",
+            cycle=self._cycle_number,
             points_collected=len(collected_points),
             signals_found=signals_found,
         )

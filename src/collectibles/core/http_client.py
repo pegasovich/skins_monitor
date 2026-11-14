@@ -132,8 +132,9 @@ class ResilientHttpClient:
                         endpoint=endpoint,
                         retry_after_seconds=retry_after,
                     )
-                    await asyncio.sleep(retry_after)
-                    # Trigger retry
+                    # Cap in-flight sleep to at most 10 seconds to prevent blocking daemon loop
+                    sleep_time = min(retry_after, 10.0)
+                    await asyncio.sleep(sleep_time)
                     response.raise_for_status()
 
                 # 3. Check for 5xx transient server errors
