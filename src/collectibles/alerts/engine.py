@@ -19,12 +19,24 @@ class AlertChannel(Protocol):
         """Send message and return delivery status."""
         ...
 
+    async def send_signal(self, signal: AnomalySignal) -> bool:
+        """Send rich formatted signal with interactive UI."""
+        ...
+
 
 class ConsoleAlertChannel:
     """Standard console logger channel for simulation and dry-run output."""
 
     async def send(self, message: str) -> bool:
         logger.info("alert_channel.console_dispatch", message=message)
+        return True
+
+    async def send_signal(self, signal: AnomalySignal) -> bool:
+        logger.info(
+            "alert_channel.console_signal_dispatch",
+            signal_id=signal.signal_id,
+            item=signal.market_hash_name,
+        )
         return True
 
 
@@ -111,7 +123,10 @@ class AlertEngine:
         # LIVE Mode: Dispatch to all registered channels
         success = True
         for ch in self.channels:
-            delivered = await ch.send(message)
+            if hasattr(ch, "send_signal"):
+                delivered = await ch.send_signal(signal)
+            else:
+                delivered = await ch.send(message)
             if not delivered:
                 success = False
 
