@@ -12,7 +12,8 @@ from collectibles.analyzer.detector import OpportunityDetector
 from collectibles.core.config import settings
 from collectibles.core.models import PricePoint
 from collectibles.providers.base import ProviderRegistry
-from collectibles.providers.mock_adapters import CSFloatAdapter
+from collectibles.providers.csfloat import CSFloatLiveAdapter
+from collectibles.providers.skinport import SkinportLiveAdapter
 from collectibles.storage.repository import SQLiteStorageRepository
 
 logger = structlog.get_logger(__name__)
@@ -49,8 +50,14 @@ class CollectiblesMonitorOrchestrator:
         )
         await self.storage.initialize()
 
-        # Register providers
-        self.registry.register(CSFloatAdapter(provider_id="csfloat"))
+        # Register live providers
+        csfloat_key = (
+            settings.csfloat_api_key.get_secret_value() if settings.csfloat_api_key else None
+        )
+        self.registry.register(CSFloatLiveAdapter(api_key=csfloat_key, provider_id="csfloat"))
+        self.registry.register(
+            SkinportLiveAdapter(client_id=settings.skinport_client_id, provider_id="skinport")
+        )
 
     async def run_cycle(self) -> None:
         """Single ingestion and analysis iteration."""
@@ -71,7 +78,36 @@ class CollectiblesMonitorOrchestrator:
                     error=str(e),
                 )
 
-        logger.debug("orchestrator.cycle_complete", points_collected=len(collected_points))
+        # Cross-source arbitrage evaluation
+        by_hash: dict[str, list[PricePoint]] = {}
+        for pt in collected_points:
+            by_hash.setdefault(pt.item_identity_hash, []).append(pt)
+
+        signals_found = 0
+        for ident_hash, pts in by_hash.items():
+            if len(pts) >= 2:
+                # Compare pairs across different sources
+                for i in range(len(pts)):
+                    for j in range(i + 1, len(pts)):
+                        p1, p2 = pts[i], pts[j]
+                        if p1.source_id == p2.source_id:
+                            continue
+                        # Test both directions
+                        for buy_p, sell_p in [(p1, p2), (p2, p1)]:
+                            signal = self.detector.evaluate_arbitrage_pair(
+                                buy_point=buy_p,
+                                sell_point=sell_p,
+                                market_hash_name=f"Item {ident_hash[:8]}",
+                            )
+                            if signal:
+                                signals_found += 1
+                                await self.alert_engine.dispatch(signal)
+
+        logger.debug(
+            "orchestrator.cycle_complete",
+            points_collected=len(collected_points),
+            signals_found=signals_found,
+        )
 
     async def start(self) -> None:
         """Run continuous monitoring loop until cancelled."""
