@@ -147,6 +147,13 @@ class CSFloatLiveAdapter(BaseProvider):
             logger.warning("csfloat.fetch_skipped_provider_unavailable")
             return []
 
+        if not self.api_key:
+            logger.warning(
+                "csfloat.api_key_not_configured",
+                hint="CSFloat listings endpoint requires CSFLOAT_API_KEY in .env",
+            )
+            return []
+
         results: list[PricePoint] = []
         async with self.circuit_breaker:
             resp = await self.http_client.get(

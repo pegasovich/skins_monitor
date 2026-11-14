@@ -36,7 +36,7 @@ RAW_SKINPORT_ITEM = {
 
 
 def test_csfloat_adapter_parses_real_json() -> None:
-    adapter = CSFloatLiveAdapter()
+    adapter = CSFloatLiveAdapter(api_key="mock_csfloat_key")
     point = adapter.parse_listing_to_price_point(RAW_CSFLOAT_LISTING)
 
     assert point.source_id == "csfloat"
@@ -64,7 +64,7 @@ async def test_csfloat_fetch_listings_network_mock() -> None:
         json=[RAW_CSFLOAT_LISTING],
     )
 
-    adapter = CSFloatLiveAdapter()
+    adapter = CSFloatLiveAdapter(api_key="mock_csfloat_key")
     listings = await adapter.fetch_listings(limit=10)
 
     assert len(listings) == 1

@@ -49,7 +49,7 @@ class SkinportLiveAdapter(BaseProvider):
         self._cached_items: list[PricePoint] = []
 
         headers = {
-            "Accept-Encoding": "gzip",
+            "Accept-Encoding": "br, gzip",
         }
         self.http_client = ResilientHttpClient(
             base_url=self.BASE_URL,
