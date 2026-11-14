@@ -144,8 +144,41 @@ class CSFloatLiveAdapter(BaseProvider):
             correlation_id=f"csfloat_{model.id}",
         )
 
-    async def fetch_listings(self, limit: int = 50) -> list[PricePoint]:
-        """Fetch active listings from CSFloat API with quarantine & circuit breaker protection."""
+    async def _fetch_by_name(self, market_hash_name: str) -> list[PricePoint]:
+        """Fetch cheapest buy-now listings for a specific item name on CSFloat."""
+        params = {
+            "limit": 3,
+            "market_hash_name": market_hash_name,
+            "sort_by": "price",
+            "type": "buy_now",
+        }
+        try:
+            resp = await self.http_client.get("/api/v1/listings", params=params)
+            raw_data = resp.json()
+            listings_raw: list[dict[str, Any]] = (
+                raw_data if isinstance(raw_data, list) else raw_data.get("data", [])
+            )
+            results: list[PricePoint] = []
+            for item_dict in listings_raw:
+                try:
+                    results.append(self.parse_listing_to_price_point(item_dict))
+                except Exception:
+                    pass
+            return results
+        except Exception as e:
+            logger.debug("csfloat.targeted_fetch_failed", item=market_hash_name, error=str(e))
+            return []
+
+    async def fetch_listings(
+        self,
+        limit: int = 50,
+        target_items: list[str] | None = None,
+    ) -> list[PricePoint]:
+        """Fetch active listings from CSFloat API.
+
+        If target_items provided, queries CSFloat for each item by name (targeted
+        cross-source matching).  Otherwise falls back to global sorted feed.
+        """
         if not self.is_available:
             logger.warning("csfloat.fetch_skipped_provider_unavailable")
             return []
@@ -157,10 +190,27 @@ class CSFloatLiveAdapter(BaseProvider):
             )
             return []
 
+        results: list[PricePoint] = []
+
+        # --- Targeted mode: search CSFloat for specific Skinport hot items ---
+        if target_items:
+            async with self.circuit_breaker:
+                for item_name in target_items[:10]:  # max 10 targeted queries per cycle
+                    pts = await self._fetch_by_name(item_name)
+                    results.extend(pts)
+                logger.info(
+                    "csfloat.fetch_success",
+                    count=len(results),
+                    sort_by="targeted",
+                    price_range=f"${settings.min_price_usd:.0f}-${settings.max_price_usd:.0f}",
+                    targets=len(target_items[:10]),
+                )
+            return results
+
+        # --- Fallback: global feed sorted by discount/recency ---
         sort_mode = "highest_discount" if self._toggle_sort else "most_recent"
         self._toggle_sort = not self._toggle_sort
 
-        results: list[PricePoint] = []
         async with self.circuit_breaker:
             params = {
                 "limit": min(limit, 50),
@@ -175,7 +225,6 @@ class CSFloatLiveAdapter(BaseProvider):
             )
             raw_data = resp.json()
 
-            # CSFloat returns either a list of listings or a dict with 'data'
             listings_raw: list[dict[str, Any]] = (
                 raw_data if isinstance(raw_data, list) else raw_data.get("data", [])
             )

@@ -97,13 +97,21 @@ class CollectiblesMonitorOrchestrator:
             except Exception as e:
                 logger.error("orchestrator.skinport_fetch_failed", error=str(e))
 
-        # 2. Fetch other providers (passing hot_targets to Steam for targeted arbitrage check)
+        # 2. Fetch other providers (passing hot_targets to Steam and CSFloat for targeted arbitrage)
         for provider in active_providers:
             if provider.provider_id == "skinport":
                 continue
             try:
                 if provider.provider_id == "steam" and isinstance(provider, SteamMarketAdapter):
                     points = await provider.fetch_listings(limit=5, target_items=hot_targets)
+                elif provider.provider_id == "csfloat" and isinstance(provider, CSFloatLiveAdapter):
+                    # Targeted: search CSFloat for the same hot items Skinport is discounting
+                    if hot_targets:
+                        points = await provider.fetch_listings(
+                            limit=50, target_items=hot_targets[:10]
+                        )
+                    else:
+                        points = await provider.fetch_listings(limit=50)
                 else:
                     points = await provider.fetch_listings(limit=50)
                 collected_points.extend(points)
