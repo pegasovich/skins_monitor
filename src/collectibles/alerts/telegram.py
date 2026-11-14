@@ -103,9 +103,15 @@ class TelegramAlertChannel(AlertChannel):
         sell_price_fmt = self._format_dual_price(signal.sell_price_net)
         profit_fmt = self._format_dual_price(signal.net_profit_nominal, prefix="+")
         sell_str = f"{signal.source_sell.upper()} (Net: {sell_price_fmt})"
+        float_line = (
+            f"🎯 <b>Float:</b> <code>{signal.float_value}</code>\n"
+            if signal.float_value is not None
+            else ""
+        )
         return (
             f"{mode_tag}"
-            f"<b>Item:</b> <code>{signal.market_hash_name}</code>\n\n"
+            f"<b>Item:</b> <code>{signal.market_hash_name}</code>\n"
+            f"{float_line}\n"
             f"🟢 <b>Buy:</b> {signal.source_buy.upper()} @ <b>{buy_price_fmt}</b>\n"
             f"🔴 <b>Sell:</b> <b>{sell_str}</b>\n\n"
             f"📈 <b>Net Spread:</b> <code>+{signal.net_spread_percent}%</code>\n"

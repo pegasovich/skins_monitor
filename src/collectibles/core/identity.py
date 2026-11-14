@@ -32,24 +32,33 @@ class CS2ItemIdentity(BaseModel):
     stickers: list[StickerInfo] = Field(default_factory=list)
 
     def get_wear_bucket(self) -> str:
-        """Classify item into wear bucket and precision tiers."""
+        """Classify item into wear bucket and precision tiers.
+
+        Sub-tiering prevents matching low-float premium items (<0.22 FT, <0.09 MW)
+        against catalog-level floor items (which are typically worn 0.35+ FT).
+        """
         if self.float_value is not None:
             fv = self.float_value
             if fv < Decimal("0.01"):
                 return "fn_triple_zero"
             if fv < Decimal("0.07"):
                 return "factory_new"
+            if fv < Decimal("0.09"):
+                return "mw_low_float"
             if fv < Decimal("0.15"):
                 return "minimal_wear"
+            if fv < Decimal("0.22"):
+                return "ft_low_float"
             if fv < Decimal("0.38"):
                 return "field_tested"
             if fv < Decimal("0.45"):
                 return "well_worn"
-            if fv >= Decimal("0.95"):
+            if fv >= Decimal("0.90"):
                 return "bs_high_float"
             return "battle_scarred"
 
-        # Infer bucket from standardized market_hash_name
+        # Infer bucket from standardized market_hash_name for catalog-level sources
+        # (e.g. Skinport min_price represents the floor/standard wear of the grade)
         name = self.market_hash_name
         if "(Factory New)" in name:
             return "factory_new"

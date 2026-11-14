@@ -14,9 +14,17 @@ def test_wear_bucket_classification() -> None:
     item_mw = CS2ItemIdentity(market_hash_name="AK-47 | Redline", float_value=Decimal("0.12"))
     assert item_mw.get_wear_bucket() == "minimal_wear"
 
-    # Field-Tested (0.15 - 0.38)
+    # Field-Tested standard (0.22 - 0.38)
     item_ft = CS2ItemIdentity(market_hash_name="AK-47 | Redline", float_value=Decimal("0.25"))
     assert item_ft.get_wear_bucket() == "field_tested"
+
+    # Field-Tested low float (<0.22)
+    item_ft_low = CS2ItemIdentity(market_hash_name="AK-47 | Redline", float_value=Decimal("0.20"))
+    assert item_ft_low.get_wear_bucket() == "ft_low_float"
+
+    # Minimal Wear low float (<0.09)
+    item_mw_low = CS2ItemIdentity(market_hash_name="AK-47 | Redline", float_value=Decimal("0.08"))
+    assert item_mw_low.get_wear_bucket() == "mw_low_float"
 
     # Triple zero extreme float (<0.01)
     item_extreme = CS2ItemIdentity(market_hash_name="AK-47 | Redline", float_value=Decimal("0.005"))

@@ -145,6 +145,7 @@ class OpportunityDetector:
             anomaly_type=AnomalyType.NET_SPREAD_ARBITRAGE,
             item_identity_hash=buy_point.item_identity_hash,
             market_hash_name=market_hash_name,
+            float_value=buy_point.float_value or sell_point.float_value,
             source_buy=buy_point.source_id,
             buy_price_net=self.fee_calculator.calculate_buyer_cost(
                 buy_point.source_id, buy_point.normalized_price

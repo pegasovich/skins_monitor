@@ -47,6 +47,7 @@ class PricePoint(BaseModel):
     external_item_id: str = Field(..., description="Original platform listing/asset ID")
     item_identity_hash: str = Field(..., description="Canonical SHA256 identity hash of the item")
     market_hash_name: str | None = Field(default=None, description="Original item market name")
+    float_value: Decimal | None = Field(default=None, description="Exact float value if available")
 
     raw_price: Decimal = Field(..., description="Original price on provider before conversion")
     raw_currency: str = Field(..., description="Currency symbol/code from the provider")
@@ -109,6 +110,7 @@ class AnomalySignal(BaseModel):
     anomaly_type: AnomalyType
     item_identity_hash: str
     market_hash_name: str
+    float_value: Decimal | None = Field(default=None, description="Item float value if known")
 
     source_buy: str
     buy_price_net: Decimal

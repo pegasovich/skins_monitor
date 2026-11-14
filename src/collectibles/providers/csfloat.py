@@ -134,6 +134,7 @@ class CSFloatLiveAdapter(BaseProvider):
             external_item_id=model.id,
             item_identity_hash=identity_hash,
             market_hash_name=model.item.market_hash_name,
+            float_value=float_dec,
             raw_price=decimal_price,
             raw_currency="USD",
             normalized_price=decimal_price,
@@ -207,7 +208,7 @@ class CSFloatLiveAdapter(BaseProvider):
                 )
             return results
 
-        # --- Fallback: global feed sorted by discount/recency ---
+        # --- Global feed alternating between highest discount and most recent ---
         sort_mode = "highest_discount" if self._toggle_sort else "most_recent"
         self._toggle_sort = not self._toggle_sort
 
