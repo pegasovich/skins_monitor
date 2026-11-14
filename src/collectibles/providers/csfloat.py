@@ -21,7 +21,7 @@ class CSFloatStickerPayload(BaseModel):
 
     model_config = ConfigDict(extra="ignore")
 
-    slot: int = Field(default=0, ge=0, le=4)
+    slot: int = Field(default=0, ge=0)
     name: str = ""
     wear: float | None = None
 

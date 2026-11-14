@@ -2,6 +2,7 @@
 
 import base64
 import json
+import time
 from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
@@ -51,6 +52,8 @@ class SkinportLiveAdapter(BaseProvider):
         self._last_etag: str | None = None
         self._cached_items: list[PricePoint] = []
         self.hot_candidates: list[str] = []
+        self._last_fetch_time: float = 0.0
+        self._cooldown_until: float = 0.0
         self.cache_file = Path("skinport_cache.json")
         self._load_disk_cache()
 
@@ -140,6 +143,12 @@ class SkinportLiveAdapter(BaseProvider):
             logger.warning("skinport.fetch_skipped_provider_unavailable")
             return self._cached_items[:limit]
 
+        now = time.time()
+        if now < self._cooldown_until:
+            return self._cached_items[:limit]
+        if (now - self._last_fetch_time < 300.0) and self._cached_items:
+            return self._cached_items[:limit]
+
         results: list[PricePoint] = []
         try:
             async with self.circuit_breaker:
@@ -198,6 +207,7 @@ class SkinportLiveAdapter(BaseProvider):
                             self.record_validation_error(e)
 
                 self._cached_items = results
+                self._last_fetch_time = time.time()
                 # Save to disk cache for offline/rate-limit recovery
                 if selected_pool:
                     try:
@@ -214,7 +224,12 @@ class SkinportLiveAdapter(BaseProvider):
                 return results
 
         except Exception as e:
-            logger.warning("skinport.rate_limited_or_error_fallback_to_cache", error=str(e))
+            self._cooldown_until = time.time() + 310.0
+            logger.warning(
+                "skinport.rate_limited_or_error_fallback_to_cache",
+                error=str(e),
+                cooldown_seconds=310,
+            )
             return self._cached_items[:limit]
 
         return self._cached_items[:limit]
