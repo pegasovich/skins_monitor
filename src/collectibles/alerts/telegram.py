@@ -51,8 +51,8 @@ class TelegramAlertChannel(AlertChannel):
         """Construct direct listing/search URL for platform."""
         safe_name = quote(market_hash_name)
         if platform_id.lower() == "csfloat":
-            # CSFloat search by name — shows all buy-now listings sorted by price
-            return f"https://csfloat.com/search?market_hash_name={safe_name}&sort_by=price&type=buy_now"
+            # Use market_hash_name only — no extra params that trigger broken redirects
+            return f"https://csfloat.com/search?market_hash_name={safe_name}&type=buy_now"
         if platform_id.lower() == "skinport":
             # Skinport item page: /item/csgo/<slug>
             slug = _slugify(market_hash_name)
@@ -90,18 +90,25 @@ class TelegramAlertChannel(AlertChannel):
         )
 
     def _build_inline_keyboard(self, signal: AnomalySignal) -> dict[str, Any]:
-        """Create action buttons linking directly to markets."""
+        """Create action buttons linking directly to markets.
+
+        Row 1: primary buy / sell buttons.
+        Row 2: Steam Market fallback (always works as a price reference).
+        """
         buy_url = self._build_marketplace_url(signal.source_buy, signal.market_hash_name)
         sell_url = self._build_marketplace_url(signal.source_sell, signal.market_hash_name)
+        steam_url = self._build_marketplace_url("steam", signal.market_hash_name)
 
-        return {
-            "inline_keyboard": [
-                [
-                    {"text": f"🛒 Buy on {signal.source_buy.upper()}", "url": buy_url},
-                    {"text": f"🏷 Sell on {signal.source_sell.upper()}", "url": sell_url},
-                ]
-            ]
-        }
+        rows: list[list[dict[str, str]]] = [
+            [
+                {"text": f"🛒 Buy on {signal.source_buy.upper()}", "url": buy_url},
+                {"text": f"🏷 Sell on {signal.source_sell.upper()}", "url": sell_url},
+            ],
+            [
+                {"text": "📊 Steam Price Reference", "url": steam_url},
+            ],
+        ]
+        return {"inline_keyboard": rows}
 
     async def send(self, message: str) -> bool:
         """Send plain text message to configured Telegram chat."""
