@@ -8,6 +8,7 @@ from decimal import Decimal
 import structlog
 
 from collectibles.analyzer.fees import FeeCalculator
+from collectibles.analyzer.liquidity import HistoricalSalesSummary, LiquidityEngine
 from collectibles.core.models import (
     AnomalySignal,
     AnomalyType,
@@ -51,6 +52,7 @@ class OpportunityDetector:
         sell_point: PricePoint,
         market_hash_name: str,
         liquidity_tier: LiquidityTier = LiquidityTier.MEDIUM,
+        sales_summary: HistoricalSalesSummary | None = None,
     ) -> AnomalySignal | None:
         """Evaluate a pair of price points from different sources for net spread profitability."""
         # 1. Quality & Status Gates (§5)
@@ -70,8 +72,28 @@ class OpportunityDetector:
         if buy_point.item_identity_hash != sell_point.item_identity_hash:
             return None
 
-        # 5. Liquidity check: illiquid items are excluded from signals
+        # 5. Wash-trading & Liquidity Evaluation (§19)
+        if sales_summary is not None:
+            liquidity_tier = LiquidityEngine.classify_liquidity(
+                sales_summary.sales_count_24h, sales_summary.sales_count_7d
+            )
+            is_suspicious_buy, buy_reason = LiquidityEngine.detect_wash_trading(
+                buy_point.normalized_price, sales_summary
+            )
+            is_suspicious_sell, sell_reason = LiquidityEngine.detect_wash_trading(
+                sell_point.normalized_price, sales_summary
+            )
+            if is_suspicious_buy or is_suspicious_sell:
+                logger.warning(
+                    "risk_analyzer.wash_trading_filtered",
+                    item=market_hash_name,
+                    buy_reason=buy_reason if is_suspicious_buy else None,
+                    sell_reason=sell_reason if is_suspicious_sell else None,
+                )
+                return None
+
         if liquidity_tier == LiquidityTier.ILLIQUID:
+            return None
             return None
 
         # 6. Fee and spread calculations (§19)
