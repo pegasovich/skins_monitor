@@ -1,6 +1,7 @@
 """Production live adapter for Steam Community Market API."""
 
 import re
+import time
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
@@ -50,6 +51,8 @@ class SteamMarketAdapter(BaseProvider):
             rate_limiter=InMemoryTokenBucket(rate_per_second=rate_per_sec, capacity=2.0),
             rate_limit_key="steam_market_api",
         )
+        self._price_cache: dict[str, tuple[PricePoint, float]] = {}
+        self.cache_ttl: float = 300.0  # 5 minutes cache TTL
 
     @staticmethod
     def _parse_currency_string(price_str: str | None) -> Decimal | None:
@@ -139,16 +142,33 @@ class SteamMarketAdapter(BaseProvider):
             logger.warning("steam.fetch_skipped_provider_unavailable")
             return None
 
-        async with self.circuit_breaker:
-            resp = await self.http_client.get(
-                "/market/priceoverview/",
-                params={"appid": 730, "currency": 1, "market_hash_name": market_hash_name},
-            )
-            if resp.status_code != 200:
-                return None
+        now = time.time()
+        if market_hash_name in self._price_cache:
+            cached_pt, ts = self._price_cache[market_hash_name]
+            if now - ts < self.cache_ttl:
+                return cached_pt
 
-            raw_json = resp.json()
-            return self.parse_overview_to_price_point(market_hash_name, raw_json)
+        try:
+            async with self.circuit_breaker:
+                resp = await self.http_client.get(
+                    "/market/priceoverview/",
+                    params={"appid": 730, "currency": 1, "market_hash_name": market_hash_name},
+                    max_attempts=1,
+                )
+                if resp.status_code != 200:
+                    return None
+
+                raw_json = resp.json()
+                point = self.parse_overview_to_price_point(market_hash_name, raw_json)
+                if point is not None:
+                    self._price_cache[market_hash_name] = (point, now)
+                return point
+        except Exception as e:
+            logger.debug("steam.item_fetch_failed", item=market_hash_name, error=str(e))
+            if market_hash_name in self._price_cache:
+                return self._price_cache[market_hash_name][0]
+            return None
+
         return None
 
     async def fetch_listings(

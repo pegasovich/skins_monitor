@@ -100,7 +100,7 @@ class CollectiblesMonitorOrchestrator:
                 continue
             try:
                 if provider.provider_id == "steam" and isinstance(provider, SteamMarketAdapter):
-                    points = await provider.fetch_listings(limit=10, target_items=hot_targets)
+                    points = await provider.fetch_listings(limit=5, target_items=hot_targets)
                 else:
                     points = await provider.fetch_listings(limit=50)
                 collected_points.extend(points)
@@ -161,8 +161,8 @@ class CollectiblesMonitorOrchestrator:
         while self.running:
             try:
                 await self.run_cycle()
-                # Poll interval
-                await asyncio.sleep(5.0)
+                # Poll interval: 15s pause to respect market rate limits
+                await asyncio.sleep(15.0)
             except asyncio.CancelledError:
                 break
             except Exception as e:
