@@ -85,9 +85,7 @@ class SkinportLiveAdapter(BaseProvider):
                 if pt is not None:
                     items.append(pt)
             self._cached_items = items
-            self.hot_candidates = [
-                pt.market_hash_name for pt in items if pt.market_hash_name
-            ]
+            self.hot_candidates = [pt.market_hash_name for pt in items if pt.market_hash_name]
             logger.info("skinport.disk_cache_loaded", count=len(self._cached_items))
         except Exception as e:
             logger.debug("skinport.disk_cache_read_failed", error=str(e))

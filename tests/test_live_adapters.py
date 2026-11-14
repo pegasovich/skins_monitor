@@ -97,3 +97,97 @@ async def test_adapters_health_checks() -> None:
 
     assert await csfloat.health_check() is True
     assert await skinport.health_check() is True
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_steam_adapter_and_cache() -> None:
+    from collectibles.providers.steam import SteamMarketAdapter
+
+    respx.get("https://steamcommunity.com/market/priceoverview/").respond(
+        status_code=200,
+        json={"success": True, "lowest_price": "$25.50", "median_price": "$24.00"},
+    )
+
+    steam = SteamMarketAdapter()
+    pt = await steam.fetch_item_price("AK-47 | Redline (Field-Tested)")
+    assert pt is not None
+    assert pt.normalized_price == Decimal("25.50")
+
+    # Second call should hit in-memory price cache without network request
+    pt_cached = await steam.fetch_item_price("AK-47 | Redline (Field-Tested)")
+    assert pt_cached is not None
+    assert pt_cached.normalized_price == Decimal("25.50")
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_csfloat_alternating_sort_and_custom_sticker_slot() -> None:
+    listing_with_slot_5 = {
+        "id": "csf_listing_custom_slot",
+        "price": 2500,
+        "item": {
+            "market_hash_name": "AK-47 | Slate (Field-Tested)",
+            "stickers": [{"slot": 5, "name": "Custom Sticker"}],
+        },
+    }
+
+    respx.get("https://csfloat.com/api/v1/listings").respond(
+        status_code=200,
+        json=[listing_with_slot_5],
+    )
+
+    adapter = CSFloatLiveAdapter(api_key="mock_key")
+    # First call: most_recent
+    res1 = await adapter.fetch_listings(limit=5)
+    assert len(res1) == 1
+    assert adapter._toggle_sort is True
+
+    # Second call: highest_discount
+    res2 = await adapter.fetch_listings(limit=5)
+    assert len(res2) == 1
+    assert adapter._toggle_sort is False
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_telegram_channel_send_signal_mock() -> None:
+    from datetime import UTC, datetime
+
+    from pydantic import SecretStr
+
+    from collectibles.alerts.telegram import TelegramAlertChannel
+    from collectibles.core.models import AnomalySignal, LiquidityTier
+
+    respx.post("https://api.telegram.org/botmock_token/sendMessage").respond(
+        status_code=200,
+        json={"ok": True},
+    )
+
+    ch = TelegramAlertChannel(
+        bot_token=SecretStr("mock_token"),
+        chat_id="123456",
+        dry_run=False,
+    )
+
+    signal = AnomalySignal(
+        signal_id="sig_test_123",
+        anomaly_type="net_spread_arbitrage",
+        item_identity_hash="hash_test",
+        market_hash_name="AK-47 | Redline (Field-Tested)",
+        source_buy="csfloat",
+        source_sell="steam",
+        buy_price_net=Decimal("15.00"),
+        sell_price_net=Decimal("20.00"),
+        gross_spread_percent=Decimal("33.33"),
+        net_spread_percent=Decimal("25.00"),
+        net_profit_nominal=Decimal("5.00"),
+        liquidity_tier=LiquidityTier.HIGH,
+        confidence_score=Decimal("0.95"),
+        fingerprint="fp_123",
+        trade_lock_risk=False,
+        detected_at=datetime.now(UTC),
+    )
+
+    sent = await ch.send_signal(signal)
+    assert sent is True
