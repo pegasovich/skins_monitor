@@ -97,21 +97,13 @@ class CollectiblesMonitorOrchestrator:
             except Exception as e:
                 logger.error("orchestrator.skinport_fetch_failed", error=str(e))
 
-        # 2. Fetch other providers (passing hot_targets to Steam and CSFloat for targeted arbitrage)
+        # 2. Fetch other providers (CSFloat global feed + Steam targeted)
         for provider in active_providers:
             if provider.provider_id == "skinport":
                 continue
             try:
                 if provider.provider_id == "steam" and isinstance(provider, SteamMarketAdapter):
                     points = await provider.fetch_listings(limit=5, target_items=hot_targets)
-                elif provider.provider_id == "csfloat" and isinstance(provider, CSFloatLiveAdapter):
-                    # Targeted: search CSFloat for the same hot items Skinport is discounting
-                    if hot_targets:
-                        points = await provider.fetch_listings(
-                            limit=50, target_items=hot_targets[:10]
-                        )
-                    else:
-                        points = await provider.fetch_listings(limit=50)
                 else:
                     points = await provider.fetch_listings(limit=50)
                 collected_points.extend(points)
@@ -121,6 +113,25 @@ class CollectiblesMonitorOrchestrator:
                     provider=provider.provider_id,
                     error=str(e),
                 )
+
+        # 3. Cross-reference: for every CSFloat item, inject matching Skinport price point
+        #    from the full in-memory catalog (Skinport /v1/items covers ALL CS2 items).
+        skinport_prov_ref = self.registry.get("skinport")
+        if skinport_prov_ref and isinstance(skinport_prov_ref, SkinportLiveAdapter):
+            injected = 0
+            existing_skinport_names = {
+                pt.market_hash_name for pt in collected_points if pt.source_id == "skinport"
+            }
+            for pt in list(collected_points):
+                if pt.source_id != "skinport" and pt.market_hash_name:
+                    if pt.market_hash_name not in existing_skinport_names:
+                        sp_pt = skinport_prov_ref.lookup_price(pt.market_hash_name)
+                        if sp_pt is not None:
+                            collected_points.append(sp_pt)
+                            existing_skinport_names.add(pt.market_hash_name)
+                            injected += 1
+            if injected:
+                logger.info("orchestrator.skinport_cross_ref_injected", count=injected)
 
         # Persist observations
         for pt in collected_points:

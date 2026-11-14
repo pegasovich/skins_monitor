@@ -52,6 +52,7 @@ class SkinportLiveAdapter(BaseProvider):
         self.client_secret = client_secret
         self._last_etag: str | None = None
         self._cached_items: list[PricePoint] = []
+        self._catalog_lookup: dict[str, PricePoint] = {}  # full catalog keyed by market_hash_name
         self.hot_candidates: list[str] = []
         self._last_fetch_time: float = 0.0
         self._cooldown_until: float = 0.0
@@ -87,6 +88,7 @@ class SkinportLiveAdapter(BaseProvider):
                     items.append(pt)
             self._cached_items = items
             self.hot_candidates = [pt.market_hash_name for pt in items if pt.market_hash_name]
+            self._catalog_lookup = {pt.market_hash_name: pt for pt in items if pt.market_hash_name}
             logger.info("skinport.disk_cache_loaded", count=len(self._cached_items))
         except Exception as e:
             logger.debug("skinport.disk_cache_read_failed", error=str(e))
@@ -135,6 +137,10 @@ class SkinportLiveAdapter(BaseProvider):
             return resp.status_code in {200, 304}
         except Exception:
             return False
+
+    def lookup_price(self, market_hash_name: str) -> PricePoint | None:
+        """Return cached Skinport price for a given item name, or None if not in catalog."""
+        return self._catalog_lookup.get(market_hash_name)
 
     def parse_item_to_price_point(self, raw_item: dict[str, Any]) -> PricePoint | None:
         """Parse raw Skinport catalog item into canonical PricePoint."""
@@ -230,6 +236,21 @@ class SkinportLiveAdapter(BaseProvider):
                 ]
 
                 selected_pool = valid_items[:limit] if valid_items else raw_items[:limit]
+
+                # Build FULL catalog lookup from ALL valid items (not just top-N)
+                # This is used by CSFloat targeted matching via lookup_price()
+                full_catalog: list[PricePoint] = []
+                for raw_dict in valid_items:
+                    try:
+                        point = self.parse_item_to_price_point(raw_dict)
+                        if point is not None:
+                            full_catalog.append(point)
+                    except Exception:
+                        pass
+                self._catalog_lookup = {
+                    pt.market_hash_name: pt for pt in full_catalog if pt.market_hash_name
+                }
+
                 for raw_dict in selected_pool:
                     try:
                         point = self.parse_item_to_price_point(raw_dict)
@@ -254,6 +275,7 @@ class SkinportLiveAdapter(BaseProvider):
                 logger.info(
                     "skinport.fetch_success",
                     count=len(results),
+                    catalog_size=len(self._catalog_lookup),
                     hot_candidates=len(self.hot_candidates),
                 )
                 return results
