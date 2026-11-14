@@ -47,6 +47,7 @@ class SkinportLiveAdapter(BaseProvider):
         self.client_secret = client_secret
         self._last_etag: str | None = None
         self._cached_items: list[PricePoint] = []
+        self.hot_candidates: list[str] = []
 
         headers = {
             "Accept-Encoding": "br, gzip",
@@ -92,6 +93,7 @@ class SkinportLiveAdapter(BaseProvider):
             source_id=self.provider_id,
             external_item_id=f"skinport_{identity_hash[:16]}",
             item_identity_hash=identity_hash,
+            market_hash_name=model.market_hash_name,
             raw_price=decimal_price,
             raw_currency=model.currency,
             normalized_price=decimal_price,
@@ -125,7 +127,33 @@ class SkinportLiveAdapter(BaseProvider):
             if not isinstance(raw_items, list):
                 return []
 
-            for raw_dict in raw_items[:limit]:
+            # Prioritize liquid items with significant discounts (min_price >= $2.00)
+            valid_items = [
+                x
+                for x in raw_items
+                if isinstance(x, dict)
+                and x.get("min_price") is not None
+                and x.get("suggested_price") is not None
+                and float(x["min_price"]) >= 2.0
+                and int(x.get("quantity", 0)) >= 1
+            ]
+
+            # Sort descending by raw spread percentage
+            valid_items.sort(
+                key=lambda x: (
+                    (float(x["suggested_price"]) - float(x["min_price"]))
+                    / float(x["suggested_price"])
+                ),
+                reverse=True,
+            )
+
+            # Record top discount names for cross-validation with Steam
+            self.hot_candidates = [
+                str(x["market_hash_name"]) for x in valid_items[:limit] if "market_hash_name" in x
+            ]
+
+            selected_pool = valid_items[:limit] if valid_items else raw_items[:limit]
+            for raw_dict in selected_pool:
                 try:
                     point = self.parse_item_to_price_point(raw_dict)
                     if point is not None:
@@ -137,5 +165,9 @@ class SkinportLiveAdapter(BaseProvider):
                         self.record_validation_error(e)
 
             self._cached_items = results
-            logger.info("skinport.fetch_success", count=len(results))
+            logger.info(
+                "skinport.fetch_success",
+                count=len(results),
+                hot_candidates=len(self.hot_candidates),
+            )
         return results

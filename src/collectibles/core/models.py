@@ -46,6 +46,7 @@ class PricePoint(BaseModel):
     )
     external_item_id: str = Field(..., description="Original platform listing/asset ID")
     item_identity_hash: str = Field(..., description="Canonical SHA256 identity hash of the item")
+    market_hash_name: str | None = Field(default=None, description="Original item market name")
 
     raw_price: Decimal = Field(..., description="Original price on provider before conversion")
     raw_currency: str = Field(..., description="Currency symbol/code from the provider")

@@ -131,6 +131,7 @@ class CSFloatLiveAdapter(BaseProvider):
             source_id=self.provider_id,
             external_item_id=model.id,
             item_identity_hash=identity_hash,
+            market_hash_name=model.item.market_hash_name,
             raw_price=decimal_price,
             raw_currency="USD",
             normalized_price=decimal_price,

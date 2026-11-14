@@ -73,18 +73,38 @@ class CollectiblesMonitorOrchestrator:
         )
 
         collected_points: list[PricePoint] = []
-        for provider in active_providers:
+        hot_targets: list[str] = []
+
+        # 1. Fetch from skinport first to discover hot discounted candidates
+        skinport_prov = self.registry.get("skinport")
+        if skinport_prov and isinstance(skinport_prov, SkinportLiveAdapter):
             try:
-                points = await provider.fetch_listings(limit=50)
+                sp_points = await skinport_prov.fetch_listings(limit=50)
+                collected_points.extend(sp_points)
+                hot_targets = skinport_prov.hot_candidates[:12]
+            except Exception as e:
+                logger.error("orchestrator.skinport_fetch_failed", error=str(e))
+
+        # 2. Fetch other providers (passing hot_targets to Steam for targeted arbitrage check)
+        for provider in active_providers:
+            if provider.provider_id == "skinport":
+                continue
+            try:
+                if provider.provider_id == "steam" and isinstance(provider, SteamMarketAdapter):
+                    points = await provider.fetch_listings(limit=10, target_items=hot_targets)
+                else:
+                    points = await provider.fetch_listings(limit=50)
                 collected_points.extend(points)
-                for pt in points:
-                    await self.storage.save_price_point(pt)
             except Exception as e:
                 logger.error(
                     "orchestrator.provider_fetch_failed",
                     provider=provider.provider_id,
                     error=str(e),
                 )
+
+        # Persist observations
+        for pt in collected_points:
+            await self.storage.save_price_point(pt)
 
         # Cross-source arbitrage evaluation
         by_hash: dict[str, list[PricePoint]] = {}
@@ -102,10 +122,15 @@ class CollectiblesMonitorOrchestrator:
                             continue
                         # Test both directions
                         for buy_p, sell_p in [(p1, p2), (p2, p1)]:
+                            item_name = (
+                                buy_p.market_hash_name
+                                or sell_p.market_hash_name
+                                or f"CS2 Skin #{ident_hash[:8]}"
+                            )
                             signal = self.detector.evaluate_arbitrage_pair(
                                 buy_point=buy_p,
                                 sell_point=sell_p,
-                                market_hash_name=f"Item {ident_hash[:8]}",
+                                market_hash_name=item_name,
                             )
                             if signal:
                                 signals_found += 1

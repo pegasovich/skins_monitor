@@ -122,6 +122,7 @@ class SteamMarketAdapter(BaseProvider):
             source_id=self.provider_id,
             external_item_id=f"steam_{identity_hash[:16]}",
             item_identity_hash=identity_hash,
+            market_hash_name=market_hash_name,
             raw_price=price_dec,
             raw_currency="USD",
             normalized_price=price_dec,
@@ -150,9 +151,10 @@ class SteamMarketAdapter(BaseProvider):
             return self.parse_overview_to_price_point(market_hash_name, raw_json)
         return None
 
-    async def fetch_listings(self, limit: int = 50) -> list[PricePoint]:
-        """Fetch prices for popular liquid benchmark items."""
-        # Standard benchmark skins for market liquidity
+    async def fetch_listings(
+        self, limit: int = 50, target_items: list[str] | None = None
+    ) -> list[PricePoint]:
+        """Fetch prices for target skins or fallback to benchmark liquidity items."""
         BENCHMARK_SKINS = [
             "AK-47 | Redline (Field-Tested)",
             "AWP | Asiimov (Field-Tested)",
@@ -166,8 +168,10 @@ class SteamMarketAdapter(BaseProvider):
             "Revolution Case",
         ]
 
+        query_list = target_items if (target_items and len(target_items) > 0) else BENCHMARK_SKINS
+
         results: list[PricePoint] = []
-        for name in BENCHMARK_SKINS[:limit]:
+        for name in query_list[:limit]:
             try:
                 point = await self.fetch_item_price(name)
                 if point is not None:
@@ -175,5 +179,5 @@ class SteamMarketAdapter(BaseProvider):
             except Exception as e:
                 logger.debug("steam.item_fetch_failed", item=name, error=str(e))
 
-        logger.info("steam.benchmark_fetch_success", count=len(results))
+        logger.info("steam.fetch_success", count=len(results), targets=len(query_list[:limit]))
         return results
