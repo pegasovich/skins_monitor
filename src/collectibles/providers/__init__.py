@@ -8,6 +8,7 @@ from collectibles.providers.base import (
 from collectibles.providers.csfloat import CSFloatLiveAdapter
 from collectibles.providers.mock_adapters import CSFloatAdapter
 from collectibles.providers.skinport import SkinportLiveAdapter
+from collectibles.providers.steam import SteamMarketAdapter
 
 __all__ = [
     "BaseProvider",
@@ -16,4 +17,5 @@ __all__ = [
     "ProviderQuarantinedError",
     "ProviderRegistry",
     "SkinportLiveAdapter",
+    "SteamMarketAdapter",
 ]

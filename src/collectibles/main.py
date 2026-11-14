@@ -14,6 +14,7 @@ from collectibles.core.models import PricePoint
 from collectibles.providers.base import ProviderRegistry
 from collectibles.providers.csfloat import CSFloatLiveAdapter
 from collectibles.providers.skinport import SkinportLiveAdapter
+from collectibles.providers.steam import SteamMarketAdapter
 from collectibles.storage.repository import SQLiteStorageRepository
 
 logger = structlog.get_logger(__name__)
@@ -58,6 +59,7 @@ class CollectiblesMonitorOrchestrator:
         self.registry.register(
             SkinportLiveAdapter(client_id=settings.skinport_client_id, provider_id="skinport")
         )
+        self.registry.register(SteamMarketAdapter(provider_id="steam"))
 
     async def run_cycle(self) -> None:
         """Single ingestion and analysis iteration."""
