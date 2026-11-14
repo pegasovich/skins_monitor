@@ -1,7 +1,9 @@
 """Production live adapter for Skinport API with ETag support."""
 
+import json
 from datetime import UTC, datetime
 from decimal import Decimal
+from pathlib import Path
 from typing import Any
 
 import structlog
@@ -48,6 +50,8 @@ class SkinportLiveAdapter(BaseProvider):
         self._last_etag: str | None = None
         self._cached_items: list[PricePoint] = []
         self.hot_candidates: list[str] = []
+        self.cache_file = Path("skinport_cache.json")
+        self._load_disk_cache()
 
         headers = {
             "Accept-Encoding": "br, gzip",
@@ -58,6 +62,26 @@ class SkinportLiveAdapter(BaseProvider):
             rate_limiter=InMemoryTokenBucket(rate_per_second=rate_per_sec, capacity=5.0),
             rate_limit_key="skinport_api",
         )
+
+    def _load_disk_cache(self) -> None:
+        """Load previously fetched items from disk cache on startup."""
+        if not self.cache_file.exists():
+            return
+        try:
+            with open(self.cache_file, encoding="utf-8") as f:
+                cached_data = json.load(f)
+            items: list[PricePoint] = []
+            for d in cached_data:
+                pt = self.parse_item_to_price_point(d)
+                if pt is not None:
+                    items.append(pt)
+            self._cached_items = items
+            self.hot_candidates = [
+                pt.market_hash_name for pt in items if pt.market_hash_name
+            ]
+            logger.info("skinport.disk_cache_loaded", count=len(self._cached_items))
+        except Exception as e:
+            logger.debug("skinport.disk_cache_read_failed", error=str(e))
 
     async def health_check(self) -> bool:
         if not self.is_available:
@@ -111,63 +135,79 @@ class SkinportLiveAdapter(BaseProvider):
             return self._cached_items[:limit]
 
         results: list[PricePoint] = []
-        async with self.circuit_breaker:
-            params = {"app_id": 730, "currency": "USD"}
-            resp = await self.http_client.get("/v1/items", params=params)
+        try:
+            async with self.circuit_breaker:
+                params = {"app_id": 730, "currency": "USD"}
+                resp = await self.http_client.get("/v1/items", params=params, max_attempts=1)
 
-            if resp.status_code == 304 and self._cached_items:
-                logger.info("skinport.cached_etag_hit_304")
-                return self._cached_items[:limit]
+                if resp.status_code == 304 and self._cached_items:
+                    logger.info("skinport.cached_etag_hit_304")
+                    return self._cached_items[:limit]
 
-            etag = resp.headers.get("ETag")
-            if etag:
-                self._last_etag = etag
+                etag = resp.headers.get("ETag")
+                if etag:
+                    self._last_etag = etag
 
-            raw_items = resp.json()
-            if not isinstance(raw_items, list):
-                return []
+                raw_items = resp.json()
+                if not isinstance(raw_items, list):
+                    return self._cached_items[:limit]
 
-            # Prioritize liquid items with significant discounts (min_price >= $2.00)
-            valid_items = [
-                x
-                for x in raw_items
-                if isinstance(x, dict)
-                and x.get("min_price") is not None
-                and x.get("suggested_price") is not None
-                and float(x["min_price"]) >= 2.0
-                and int(x.get("quantity", 0)) >= 1
-            ]
+                # Prioritize liquid items with significant discounts (min_price >= $2.00)
+                valid_items = [
+                    x
+                    for x in raw_items
+                    if isinstance(x, dict)
+                    and x.get("min_price") is not None
+                    and x.get("suggested_price") is not None
+                    and float(x["min_price"]) >= 2.0
+                    and int(x.get("quantity", 0)) >= 1
+                ]
 
-            # Sort descending by raw spread percentage
-            valid_items.sort(
-                key=lambda x: (
-                    (float(x["suggested_price"]) - float(x["min_price"]))
-                    / float(x["suggested_price"])
-                ),
-                reverse=True,
-            )
+                # Sort descending by raw spread percentage
+                valid_items.sort(
+                    key=lambda x: (
+                        (float(x["suggested_price"]) - float(x["min_price"]))
+                        / float(x["suggested_price"])
+                    ),
+                    reverse=True,
+                )
 
-            # Record top discount names for cross-validation with Steam
-            self.hot_candidates = [
-                str(x["market_hash_name"]) for x in valid_items[:limit] if "market_hash_name" in x
-            ]
+                # Record top discount names for cross-validation with Steam
+                self.hot_candidates = [
+                    str(x["market_hash_name"])
+                    for x in valid_items[:limit]
+                    if "market_hash_name" in x
+                ]
 
-            selected_pool = valid_items[:limit] if valid_items else raw_items[:limit]
-            for raw_dict in selected_pool:
+                selected_pool = valid_items[:limit] if valid_items else raw_items[:limit]
+                for raw_dict in selected_pool:
+                    try:
+                        point = self.parse_item_to_price_point(raw_dict)
+                        if point is not None:
+                            results.append(point)
+                    except Exception as e:
+                        from pydantic import ValidationError
+
+                        if isinstance(e, ValidationError):
+                            self.record_validation_error(e)
+
+                self._cached_items = results
+                # Save to disk cache for offline/rate-limit recovery
                 try:
-                    point = self.parse_item_to_price_point(raw_dict)
-                    if point is not None:
-                        results.append(point)
-                except Exception as e:
-                    from pydantic import ValidationError
+                    with open(self.cache_file, "w", encoding="utf-8") as f:
+                        json.dump(selected_pool, f)
+                except Exception:
+                    pass
 
-                    if isinstance(e, ValidationError):
-                        self.record_validation_error(e)
+                logger.info(
+                    "skinport.fetch_success",
+                    count=len(results),
+                    hot_candidates=len(self.hot_candidates),
+                )
+                return results
 
-            self._cached_items = results
-            logger.info(
-                "skinport.fetch_success",
-                count=len(results),
-                hot_candidates=len(self.hot_candidates),
-            )
-        return results
+        except Exception as e:
+            logger.warning("skinport.rate_limited_or_error_fallback_to_cache", error=str(e))
+            return self._cached_items[:limit]
+
+        return self._cached_items[:limit]

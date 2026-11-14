@@ -10,6 +10,7 @@ htmlcov/
 .coverage
 *.db
 *.sqlite3
+skinport_cache.json
 .env
 ! .env.example
 dist/
