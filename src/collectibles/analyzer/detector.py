@@ -57,11 +57,23 @@ class OpportunityDetector:
         """Evaluate a pair of price points from different sources for net spread profitability."""
         # 1. Quality & Status Gates (§5)
         if buy_point.status != DataStatus.FRESH or sell_point.status != DataStatus.FRESH:
+            logger.debug(
+                "detector.rejected_stale",
+                item=market_hash_name,
+                buy_status=buy_point.status,
+                sell_status=sell_point.status,
+            )
             return None
 
         # 2. Minimum confidence gate
         min_conf = min(buy_point.confidence, sell_point.confidence)
         if min_conf < self.min_confidence_score:
+            logger.debug(
+                "detector.rejected_low_confidence",
+                item=market_hash_name,
+                confidence=str(min_conf),
+                threshold=str(self.min_confidence_score),
+            )
             return None
 
         # 3. Same source cannot arbitrage itself
@@ -105,6 +117,17 @@ class OpportunityDetector:
         )
 
         if net_spread < self.min_net_spread_percent or net_profit <= Decimal("0.0"):
+            logger.debug(
+                "detector.rejected_spread_too_low",
+                item=market_hash_name,
+                net_spread=str(net_spread),
+                net_profit=str(net_profit),
+                min_required=str(self.min_net_spread_percent),
+                buy_price=str(buy_point.normalized_price),
+                sell_price=str(sell_point.normalized_price),
+                buy_source=buy_point.source_id,
+                sell_source=sell_point.source_id,
+            )
             return None
 
         # Determine trade lock risk

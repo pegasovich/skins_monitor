@@ -123,6 +123,17 @@ class CollectiblesMonitorOrchestrator:
         for pt in collected_points:
             by_hash.setdefault(pt.item_identity_hash, []).append(pt)
 
+        # Diagnostic: log how many hashes have multi-source coverage
+        multi_source = {h: ps for h, ps in by_hash.items() if len({p.source_id for p in ps}) >= 2}
+        logger.info(
+            "orchestrator.hash_coverage",
+            total_unique_hashes=len(by_hash),
+            multi_source_matches=len(multi_source),
+            sources_per_hash_sample={
+                h[:8]: [p.source_id for p in ps] for h, ps in list(multi_source.items())[:5]
+            },
+        )
+
         signals_found = 0
         for ident_hash, pts in by_hash.items():
             if len(pts) >= 2:
