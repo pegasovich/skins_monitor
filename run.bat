@@ -8,10 +8,14 @@ echo ========================================================
 echo.
 
 set PYTHONPATH=src
-if exist .venv\Scripts\python.exe (
-    .venv\Scripts\python.exe -m collectibles.main
-) else (
-    python -m collectibles.main
+if not exist .venv\Scripts\python.exe (
+    echo [.venv not found] Creating virtual environment and installing dependencies...
+    python -m venv .venv
+    .venv\Scripts\python.exe -m pip install -e .
+    echo Setup complete!
+    echo.
 )
+
+.venv\Scripts\python.exe -m collectibles.main
 
 pause

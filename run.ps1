@@ -9,8 +9,11 @@ Write-Host "========================================================" -Foregroun
 
 $env:PYTHONPATH = "src"
 
-if (Test-Path ".\.venv\Scripts\python.exe") {
-    & ".\.venv\Scripts\python.exe" -m collectibles.main
-} else {
-    python -m collectibles.main
+if (-not (Test-Path ".\.venv\Scripts\python.exe")) {
+    Write-Host "[.venv not found] Creating virtual environment and installing dependencies..." -ForegroundColor Yellow
+    python -m venv .venv
+    & ".\.venv\Scripts\python.exe" -m pip install -e .
+    Write-Host "Setup complete!" -ForegroundColor Green
 }
+
+& ".\.venv\Scripts\python.exe" -m collectibles.main
