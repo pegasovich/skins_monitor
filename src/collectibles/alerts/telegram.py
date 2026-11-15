@@ -94,6 +94,17 @@ class TelegramAlertChannel(AlertChannel):
             return f"https://steamcommunity.com/market/listings/730/{safe_name}"
         return f"https://google.com/search?q=CS2+{safe_name}"
 
+    def _build_sell_action_url(self, platform_id: str) -> str:
+        """Construct direct sell/inventory listing URL for platform."""
+        p = platform_id.lower()
+        if p == "skinport":
+            return "https://skinport.com/sell"
+        if p == "csfloat":
+            return "https://csfloat.com/sell"
+        if p == "steam":
+            return "https://steamcommunity.com/my/inventory#730"
+        return "https://skinport.com/sell"
+
     def format_signal_html(self, signal: AnomalySignal) -> str:
         """Render readable HTML message for Telegram."""
         mode_tag = (
@@ -107,18 +118,44 @@ class TelegramAlertChannel(AlertChannel):
             else "⚡ <i>Instant Delivery</i>"
         )
 
-        buy_price_fmt = self._format_dual_price(
-            signal.buy_price_net,
-            raw_amount=signal.buy_raw_price,
-            raw_currency=signal.buy_raw_currency,
-        )
-        sell_price_fmt = self._format_dual_price(
-            signal.sell_price_net,
-            raw_amount=signal.sell_raw_price,
-            raw_currency=signal.sell_raw_currency,
-        )
-        profit_fmt = self._format_dual_price(signal.net_profit_nominal, prefix="+")
-        sell_str = f"{signal.source_sell.upper()} (Net: {sell_price_fmt})"
+        fee_rates = {
+            "skinport": Decimal("0.06"),
+            "csfloat": Decimal("0.02"),
+            "steam": Decimal("0.1304"),
+        }
+        seller_fee = fee_rates.get(signal.source_sell.lower(), Decimal("0.06"))
+
+        if (
+            signal.buy_raw_currency == "EUR"
+            and signal.buy_raw_price is not None
+            and signal.sell_raw_currency == "EUR"
+            and signal.sell_raw_price is not None
+        ):
+            # Pure native EUR display directly from both platforms — zero conversion error!
+            buy_price_fmt = f"€{signal.buy_raw_price} (${signal.buy_price_net})"
+            net_sell_eur = (signal.sell_raw_price * (Decimal("1.0") - seller_fee)).quantize(
+                Decimal("0.01")
+            )
+            sell_str = (
+                f"{signal.source_sell.upper()} (List: €{signal.sell_raw_price} | "
+                f"Net: €{net_sell_eur})"
+            )
+            profit_eur = (net_sell_eur - signal.buy_raw_price).quantize(Decimal("0.01"))
+            profit_fmt = f"+€{profit_eur} (+${signal.net_profit_nominal})"
+        else:
+            buy_price_fmt = self._format_dual_price(
+                signal.buy_price_net,
+                raw_amount=signal.buy_raw_price,
+                raw_currency=signal.buy_raw_currency,
+            )
+            sell_price_fmt = self._format_dual_price(
+                signal.sell_price_net,
+                raw_amount=signal.sell_raw_price,
+                raw_currency=signal.sell_raw_currency,
+            )
+            profit_fmt = self._format_dual_price(signal.net_profit_nominal, prefix="+")
+            sell_str = f"{signal.source_sell.upper()} (Net: {sell_price_fmt})"
+
         float_line = (
             f"🎯 <b>Float:</b> <code>{signal.float_value}</code>\n"
             if signal.float_value is not None
@@ -141,21 +178,26 @@ class TelegramAlertChannel(AlertChannel):
     def _build_inline_keyboard(self, signal: AnomalySignal) -> dict[str, Any]:
         """Create action buttons linking directly to markets.
 
-        Row 1: primary buy / sell buttons (direct listing when ID available).
-        Row 2: Steam Market fallback (always works as a price reference).
+        Row 1: Buy action (direct item link).
+        Row 2: Sell side - Market view (competitor prices) + Direct sell listing page.
+        Row 3: Steam Market price reference.
         """
         buy_url = self._build_marketplace_url(
             signal.source_buy, signal.market_hash_name, signal.buy_external_id
         )
-        sell_url = self._build_marketplace_url(
+        sell_view_url = self._build_marketplace_url(
             signal.source_sell, signal.market_hash_name, signal.sell_external_id
         )
+        sell_action_url = self._build_sell_action_url(signal.source_sell)
         steam_url = self._build_marketplace_url("steam", signal.market_hash_name)
 
         rows: list[list[dict[str, str]]] = [
             [
                 {"text": f"🛒 Buy on {signal.source_buy.upper()}", "url": buy_url},
-                {"text": f"🏷 Sell on {signal.source_sell.upper()}", "url": sell_url},
+            ],
+            [
+                {"text": f"🏷 Market on {signal.source_sell.upper()}", "url": sell_view_url},
+                {"text": f"📤 List on {signal.source_sell.upper()}", "url": sell_action_url},
             ],
             [
                 {"text": "📊 Steam Price Reference", "url": steam_url},

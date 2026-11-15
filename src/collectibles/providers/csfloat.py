@@ -1,5 +1,6 @@
 """Production live adapter for CSFloat marketplace API."""
 
+import time
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
@@ -86,6 +87,25 @@ class CSFloatLiveAdapter(BaseProvider):
             rate_limit_key="csfloat_api",
         )
         self._toggle_sort: bool = False
+        self._cached_eur_rate: Decimal = Decimal("0.907069")
+        self._last_rate_fetch: float = 0.0
+
+    async def get_eur_rate(self) -> Decimal:
+        """Fetch CSFloat's native EUR conversion rate from official meta endpoint."""
+        now = time.time()
+        if self._last_rate_fetch > 0 and (now - self._last_rate_fetch < 3600):
+            return self._cached_eur_rate
+        try:
+            resp = await self.http_client.get("/api/v1/meta/exchange-rates", max_attempts=1)
+            if resp.status_code == 200:
+                data = resp.json().get("data", {})
+                rate = data.get("eur")
+                if rate:
+                    self._cached_eur_rate = Decimal(str(rate))
+                    self._last_rate_fetch = now
+        except Exception:
+            pass
+        return self._cached_eur_rate
 
     async def health_check(self) -> bool:
         """Verify liveness of CSFloat endpoint."""
@@ -99,11 +119,14 @@ class CSFloatLiveAdapter(BaseProvider):
         except Exception:
             return False
 
-    def parse_listing_to_price_point(self, raw_listing: dict[str, Any]) -> PricePoint | None:
+    def parse_listing_to_price_point(
+        self, raw_listing: dict[str, Any], eur_rate: Decimal | None = None
+    ) -> PricePoint | None:
         """Validate raw json dictionary into canonical PricePoint.
 
         Rejects overpriced listings where price > predicted_price to prevent false
         arbitrage alerts triggered by user-inflated asks.
+        Stores exact EUR price calculated with CSFloat's native exchange rate.
         """
         model = CSFloatListing.model_validate(raw_listing)
         self.record_validation_success()
@@ -148,14 +171,18 @@ class CSFloatLiveAdapter(BaseProvider):
             except ValueError:
                 pass
 
+        # Calculate exact native EUR price as seen on CSFloat frontend
+        active_eur_rate = eur_rate or self._cached_eur_rate
+        eur_price = (decimal_price * active_eur_rate).quantize(Decimal("0.01"))
+
         return PricePoint(
             source_id=self.provider_id,
             external_item_id=model.id,
             item_identity_hash=identity_hash,
             market_hash_name=model.item.market_hash_name,
             float_value=float_dec,
-            raw_price=decimal_price,
-            raw_currency="USD",
+            raw_price=eur_price,
+            raw_currency="EUR",
             normalized_price=decimal_price,
             base_currency="USD",
             event_time=event_time,
@@ -166,6 +193,7 @@ class CSFloatLiveAdapter(BaseProvider):
 
     async def _fetch_by_name(self, market_hash_name: str) -> list[PricePoint]:
         """Fetch cheapest buy-now listings for a specific item name on CSFloat."""
+        eur_rate = await self.get_eur_rate()
         params = {
             "limit": 3,
             "market_hash_name": market_hash_name,
@@ -181,7 +209,9 @@ class CSFloatLiveAdapter(BaseProvider):
             results: list[PricePoint] = []
             for item_dict in listings_raw:
                 try:
-                    results.append(self.parse_listing_to_price_point(item_dict))
+                    pt = self.parse_listing_to_price_point(item_dict, eur_rate=eur_rate)
+                    if pt is not None:
+                        results.append(pt)
                 except Exception:
                     pass
             return results
@@ -231,6 +261,7 @@ class CSFloatLiveAdapter(BaseProvider):
         sort_mode = "highest_discount" if self._toggle_sort else "most_recent"
         self._toggle_sort = not self._toggle_sort
 
+        eur_rate = await self.get_eur_rate()
         async with self.circuit_breaker:
             params = {
                 "limit": min(limit, 50),
@@ -251,7 +282,7 @@ class CSFloatLiveAdapter(BaseProvider):
 
             for item_dict in listings_raw:
                 try:
-                    price_point = self.parse_listing_to_price_point(item_dict)
+                    price_point = self.parse_listing_to_price_point(item_dict, eur_rate=eur_rate)
                     if price_point is not None:
                         results.append(price_point)
                 except Exception as e:
