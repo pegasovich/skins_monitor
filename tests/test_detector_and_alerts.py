@@ -109,3 +109,38 @@ async def test_alert_engine_dry_run_and_kill_switch() -> None:
     kill_settings = Settings(dry_run=False, stop_all_outbound=True)
     blocked_engine = AlertEngine(settings=kill_settings)
     assert await blocked_engine.dispatch(signal) is False
+
+
+def test_detector_uses_reference_price_for_sell_side() -> None:
+    detector = OpportunityDetector(min_net_spread_percent=Decimal("3.0"))
+
+    buy_point = make_sample_price("skinport", Decimal("100.00"))
+    # Sell point on CSFloat has asking price $150, but reference price is $110
+    sell_point = PricePoint(
+        source_id="csfloat",
+        external_item_id="ext_csfloat",
+        item_identity_hash="test_identity_hash_123",
+        raw_price=Decimal("135.00"),  # EUR price
+        raw_currency="EUR",
+        normalized_price=Decimal("150.00"),  # USD ask
+        reference_price=Decimal("110.00"),  # USD reference price
+        base_currency="USD",
+        event_time=datetime.now(UTC),
+        status=DataStatus.FRESH,
+        confidence=Decimal("0.95"),
+        correlation_id="corr-1",
+    )
+
+    signal = detector.evaluate_arbitrage_pair(
+        buy_point=buy_point,
+        sell_point=sell_point,
+        market_hash_name="AK-47 | Vulcan (Field-Tested)",
+    )
+
+    assert signal is not None
+    # Sell proceeds must be based on $110 (CSFloat fee is 2% -> $110 * 0.98 = $107.80)
+    # Net profit: 107.80 - 100.00 = 7.80
+    assert signal.net_profit_nominal == Decimal("7.80")
+    assert signal.net_spread_percent == Decimal("7.80")
+    # Raw EUR sell price must be recomputed proportionally
+    assert signal.sell_raw_price == Decimal("99.00")  # 110 * (135/150) = 99.00

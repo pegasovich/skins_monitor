@@ -52,6 +52,10 @@ class PricePoint(BaseModel):
     raw_price: Decimal = Field(..., description="Original price on provider before conversion")
     raw_currency: str = Field(..., description="Currency symbol/code from the provider")
     normalized_price: Decimal = Field(..., description="Standardized price in base currency (USD)")
+    reference_price: Decimal | None = Field(
+        default=None,
+        description="Predicted/reference market value in USD (e.g. CSFloat predicted_price)",
+    )
     base_currency: str = Field(default="USD", description="Target base currency")
 
     fx_rate: Decimal = Field(

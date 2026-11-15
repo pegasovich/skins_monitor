@@ -106,14 +106,19 @@ class OpportunityDetector:
 
         if liquidity_tier == LiquidityTier.ILLIQUID:
             return None
-            return None
 
         # 6. Fee and spread calculations (§19)
+        # Use reference_price (platform's predicted market value) for sell-side
+        # valuation when available — prevents false signals from overpriced asks.
+        sell_effective_price = sell_point.normalized_price
+        if sell_point.reference_price is not None:
+            sell_effective_price = min(sell_point.normalized_price, sell_point.reference_price)
+
         gross_spread, net_spread, net_profit = self.fee_calculator.compute_net_spread(
             buy_platform=buy_point.source_id,
             buy_listing_price=buy_point.normalized_price,
             sell_platform=sell_point.source_id,
-            sell_listing_price=sell_point.normalized_price,
+            sell_listing_price=sell_effective_price,
         )
 
         if net_spread < self.min_net_spread_percent or net_profit <= Decimal("0.0"):
@@ -140,6 +145,21 @@ class OpportunityDetector:
             item_identity_hash=buy_point.item_identity_hash,
         )
 
+        # Compute sell-side EUR price from effective price if reference was used
+        if (
+            sell_point.reference_price is not None
+            and sell_effective_price < sell_point.normalized_price
+        ):
+            # Reference price was used — recalculate raw EUR from reference
+            if sell_point.raw_currency == "EUR" and sell_point.normalized_price > Decimal("0"):
+                # Derive EUR from the ratio: eur = usd * (original_eur / original_usd)
+                eur_ratio = sell_point.raw_price / sell_point.normalized_price
+                sell_raw_eur = (sell_effective_price * eur_ratio).quantize(Decimal("0.01"))
+            else:
+                sell_raw_eur = sell_point.raw_price
+        else:
+            sell_raw_eur = sell_point.raw_price
+
         signal = AnomalySignal(
             signal_id=f"sig_{uuid.uuid4().hex[:12]}",
             anomaly_type=AnomalyType.NET_SPREAD_ARBITRAGE,
@@ -155,9 +175,9 @@ class OpportunityDetector:
             buy_external_id=buy_point.external_item_id,
             source_sell=sell_point.source_id,
             sell_price_net=self.fee_calculator.calculate_seller_proceeds(
-                sell_point.source_id, sell_point.normalized_price
+                sell_point.source_id, sell_effective_price
             ),
-            sell_raw_price=sell_point.raw_price,
+            sell_raw_price=sell_raw_eur,
             sell_raw_currency=sell_point.raw_currency,
             sell_external_id=sell_point.external_item_id,
             gross_spread_percent=gross_spread,

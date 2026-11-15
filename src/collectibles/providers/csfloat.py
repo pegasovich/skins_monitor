@@ -134,6 +134,12 @@ class CSFloatLiveAdapter(BaseProvider):
         # Overprice protection: discard asks priced above CSFloat's predicted market value
         if model.reference and model.reference.predicted_price:
             if model.price > model.reference.predicted_price:
+                logger.debug(
+                    "csfloat.overpriced_listing_rejected",
+                    item=model.item.market_hash_name,
+                    price=model.price,
+                    predicted_price=model.reference.predicted_price,
+                )
                 return None
 
         # Convert cents to Decimal USD
@@ -141,6 +147,12 @@ class CSFloatLiveAdapter(BaseProvider):
         float_dec = (
             Decimal(str(model.item.float_value)) if model.item.float_value is not None else None
         )
+
+        ref_price_usd: Decimal | None = None
+        if model.reference and model.reference.predicted_price:
+            ref_price_usd = (
+                Decimal(str(model.reference.predicted_price)) / Decimal("100")
+            ).quantize(Decimal("0.01"))
 
         normalized_stickers = [
             StickerInfo(
@@ -184,6 +196,7 @@ class CSFloatLiveAdapter(BaseProvider):
             raw_price=eur_price,
             raw_currency="EUR",
             normalized_price=decimal_price,
+            reference_price=ref_price_usd,
             base_currency="USD",
             event_time=event_time,
             status=DataStatus.FRESH,
